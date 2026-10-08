@@ -1,4 +1,5 @@
 import { withSkillInstructions } from "../shared/skill-instructions.js";
+import { buildDispatchEnvelope, invalidateProjectContext } from "../shared/context-builder.js";
 
 const SKILL_IDS = new Set([
   "interface-premium",
@@ -122,6 +123,9 @@ async function submit(message, sender) {
   }
 
   const repository = String(message.repository || stored.workspaceBindings?.[projectId]?.repository || "");
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
+    throw new Error("Connect GitHub to enable dispatch.");
+  }
   const payload = {
     text,
     url: String(message.url || sender?.tab?.url || ""),
@@ -136,7 +140,9 @@ async function submit(message, sender) {
 
   const preparedPrompt = await globalThis.LovaRPMLicense?.preparePrompt?.("main", payload);
   if (!preparedPrompt) throw new Error("The server did not prepare the attachment operation.");
-  const prompt = withSkillInstructions(preparedPrompt, payload.skills);
+  await invalidateProjectContext(projectId);
+  const envelope = await buildDispatchEnvelope(projectId, preparedPrompt);
+  const prompt = withSkillInstructions(envelope, payload.skills);
   const tab = await chat(projectId);
   const source = sender?.tab?.id ? await chrome.tabs.get(sender.tab.id).catch(() => null) : null;
   const wasActive = Boolean(tab.active);

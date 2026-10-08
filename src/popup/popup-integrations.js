@@ -30,6 +30,12 @@
       script.src = chrome.runtime.getURL("src/popup/popup-progress.js");
       document.documentElement.appendChild(script);
     }
+    if (!document.getElementById("lovarpm-migration-runner-card")) {
+      const script = document.createElement("script");
+      script.id = "lovarpm-migration-runner-card";
+      script.src = chrome.runtime.getURL("src/popup/popup-migration-runner.js");
+      document.documentElement.appendChild(script);
+    }
   }
   loadV026Ui();
 

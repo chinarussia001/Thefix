@@ -1,5 +1,8 @@
 import { getConfig, setConfig } from "../shared/storage.js";
 import { getPromptSkillIds, withSkillInstructions } from "../shared/skill-instructions.js";
+import { buildDispatchEnvelope, gatherProjectContext, invalidateAllProjectContexts, invalidateProjectContext } from "../shared/context-builder.js";
+import { runPostCompletionPipeline } from "../shared/post-completion.js";
+import { setupProject } from "./setup.js";
 
 const CHATGPT_URL_PATTERNS = ["https://chatgpt.com/*"];
 const CHATGPT_BRIDGE_FILE = "src/content/chatgpt.js";
@@ -52,12 +55,21 @@ async function cleanChatGptOnlyState() {
 
 chrome.runtime.onInstalled.addListener(async () => {
   await cleanChatGptOnlyState();
+  await invalidateAllProjectContexts();
   await configureSidePanel();
 });
 
 chrome.runtime.onStartup.addListener(() => {
   void cleanChatGptOnlyState();
+  void invalidateAllProjectContexts();
   configureSidePanel();
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  if (changes.workspaceBindings || changes.projectIntegrations || changes.projectChatBindings || changes.lastPlatformWorkspaces || changes.lastLovableWorkspace || changes.pendingPrompt) {
+    void invalidateAllProjectContexts();
+  }
 });
 
 void cleanChatGptOnlyState();
@@ -376,7 +388,8 @@ async function relayPromptToChatGpt(payload, sourceTabId = null) {
 
   const preparedPrompt = await globalThis.LovaRPMLicense?.preparePrompt?.("main", payload);
   if (!preparedPrompt) throw new Error("The server did not prepare the operation.");
-  const prompt = withSkillInstructions(preparedPrompt, payload.skills);
+  const envelope = await buildDispatchEnvelope(payload.lovableProjectId, preparedPrompt);
+  const prompt = withSkillInstructions(envelope, payload.skills);
   let sourceTab = null;
   let activatedChatForDispatch = false;
 
@@ -423,6 +436,7 @@ async function relayPromptToChatGpt(payload, sourceTabId = null) {
 
 const PROJECT_RUN_STATUS_KEY = "projectRunStatuses";
 const ACCESS_BOOTSTRAP_KEY = "accessBootstrapConversationsV219";
+const POST_COMPLETION_RUNS = new Set();
 
 async function accessBootstrapState(projectId) {
   const id = String(projectId || "").trim();
@@ -492,6 +506,10 @@ async function handleCapturedPrompt(message, sender) {
     lovableProjectId = workspace.lovableProjectId || lovableProjectId;
   }
 
+  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(String(repository || ""))) {
+    return { ok: false, error: "Connect GitHub to enable dispatch." };
+  }
+
   let fallbackSkills;
   if (!Object.prototype.hasOwnProperty.call(payload, "skills") && lovableProjectId) {
     const stored = await chrome.storage.local.get("projectSkillSelections");
@@ -545,6 +563,7 @@ async function handleCapturedPrompt(message, sender) {
   }
 
   await chrome.storage.local.set(storagePatch);
+  await invalidateProjectContext(pendingPrompt.lovableProjectId);
 
   try {
     const relay = await relayPromptToChatGpt(pendingPrompt, sender?.tab?.id);
@@ -621,7 +640,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     // Mark access bootstrap complete only after a successful ChatGPT completion.
     const marker = String(message.marker || "");
     const projectId = String(message.projectId || "");
-    if (marker === "[LOVABURST_DONE]" || marker === "[LOVARPM_DONE]") {
+    if (marker === "[PRM_DONE]" || marker === "[LOVABURST_DONE]" || marker === "[LOVARPM_DONE]") {
       chrome.storage.local.get("pendingPrompt")
         .then((stored) => {
           const prompt = stored.pendingPrompt;
@@ -634,6 +653,25 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         })
         .catch(() => {});
     }
+    const completionMarkers = ["[PRM_DONE]", "[PRM_BLOCKED]", "[PRM_ERROR]", "[LOVABURST_DONE]", "[LOVABURST_BLOCKED]", "[LOVABURST_ERROR]", "[LOVARPM_DONE]", "[LOVARPM_BLOCKED]", "[LOVARPM_ERROR]"];
+    if (projectId && completionMarkers.includes(marker)) {
+      void (async () => {
+        const stored = await chrome.storage.local.get(PROJECT_RUN_STATUS_KEY);
+        const run = stored[PROJECT_RUN_STATUS_KEY]?.[projectId] || {};
+        const runToken = `${projectId}:${run.assistantMessageKey || run.completedAt || marker}:${marker}`;
+        if (run.postCompletionKey === runToken || POST_COMPLETION_RUNS.has(runToken)) return;
+        POST_COMPLETION_RUNS.add(runToken);
+        try {
+          const context = await gatherProjectContext(projectId);
+          await runPostCompletionPipeline(projectId, run.liveResponse || run.excerpt || "", { ...context, marker, status: run.status }, setProjectRunStatus);
+          await setProjectRunStatus(projectId, { postCompletionKey: runToken });
+        } finally {
+          POST_COMPLETION_RUNS.delete(runToken);
+        }
+      })().catch((error) => {
+        void setProjectRunStatus(projectId, { status: "error", error: error instanceof Error ? error.message : String(error) });
+      });
+    }
     sendResponse({
       ok: true,
       projectId,
@@ -645,6 +683,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 
   if (!message || typeof message !== "object") return false;
+  if (message.type === "LOVARPM_SETUP_PROJECT") {
+    const projectId = String(message.projectId || "").trim();
+    setupProject(projectId, (payload) => {
+      chrome.runtime.sendMessage({ type: "SETUP_PROGRESS", payload }).catch(() => {});
+    })
+      .then(() => {
+        chrome.runtime.sendMessage({ type: "SETUP_DONE", payload: { ok: true } }).catch(() => {});
+        sendResponse({ ok: true });
+      })
+      .catch((error) => {
+        const detail = error instanceof Error ? error.message : String(error);
+        chrome.runtime.sendMessage({ type: "SETUP_FAILED", payload: { error: detail } }).catch(() => {});
+        sendResponse({ ok: false, error: detail });
+      });
+    return true;
+  }
+
   if (message.type === "LOVABURST_PREPARE_SPECIAL_OPERATION") {
     const operation = String(message.operation || "").trim();
     if (!["create-project", "analyze-project"].includes(operation)) { sendResponse({ ok: false, error: "Invalid operation." }); return false; }

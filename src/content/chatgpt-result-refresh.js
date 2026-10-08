@@ -3,9 +3,12 @@
   window.__LOVABURST_CHATGPT_RESULT_REFRESH__ = true;
 
   const KEY = "projectRunStatuses";
-  const REQUEST_MARKERS = ["[LOVABURST_REQUEST_V3]", "[LOVABURST_REQUEST_V2]", "[LOVABURST_REQUEST_V1]", "[LOVARPM_REQUEST_V3]", "[LOVARPM_REQUEST_V2]", "[LOVARPM_REQUEST_V1]"];
-  const PROJECT_RE = /(?:LOVABLE_PROJECT|BASE44_APP):\s*([A-Za-z0-9-]+)/i;
+  const REQUEST_MARKERS = ["[PRM_BUILD_REQUEST_V5]", "[LOVABURST_REQUEST_V3]", "[LOVABURST_REQUEST_V2]", "[LOVABURST_REQUEST_V1]", "[LOVARPM_REQUEST_V3]", "[LOVARPM_REQUEST_V2]", "[LOVARPM_REQUEST_V1]"];
+  const PROJECT_RE = /(?:LOVABLE_PROJECT|BASE44_APP|lovable_project_id):\s*([A-Za-z0-9-]+)/i;
   const RESULT_MARKERS = Object.freeze({
+    "[PRM_DONE]": "done",
+    "[PRM_BLOCKED]": "blocked",
+    "[PRM_ERROR]": "error",
     "[LOVABURST_DONE]": "done",
     "[LOVABURST_BLOCKED]": "blocked",
     "[LOVABURST_ERROR]": "error",

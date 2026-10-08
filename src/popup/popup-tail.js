@@ -46,17 +46,24 @@ async function refreshRunStatus() {
 
   const states = {
     sending: { icon: "↗", title: "Sending to ChatGPT…", text: "Preparing the project, repository, and request context.", loading: true },
-    working: { icon: "✦", title: "ChatGPT is working…", text: "Track the live response below as it appears in ChatGPT.", loading: true },
+    working: { icon: "✦", title: "ChatGPT is working…", text: "Working...", loading: true },
     done: { icon: "✓", title: "Complete", text: "ChatGPT completed this request successfully.", loading: false },
-    blocked: { icon: "!", title: "Action required", text: "ChatGPT encountered a blocker and needs your attention.", loading: false },
+    blocked: { icon: "!", title: "Action required", text: status.marker?.startsWith("[PRM_") ? `ChatGPT reported ${status.marker}` : "ChatGPT encountered a blocker and needs your attention.", loading: false },
     error: { icon: "×", title: "Execution error", text: status.error || "This request could not be completed.", loading: false },
+    migrated: { icon: "↻", title: "Migrations applied", text: `Migrations applied: ${(status.applied || []).join(", ") || "none"}`, loading: true },
+    live: { icon: "✓", title: "Endpoint live", text: `Endpoint live: ${status.urls?.find((item) => item.state === "live")?.url || "verified"}`, loading: false },
+    "runtime-error": { icon: "×", title: "Endpoint error", text: `Endpoint 500: ${status.urls?.find((item) => item.state === "runtime-error")?.url || "unknown"}`, loading: false },
+    "deploy-failed": { icon: "…", title: "Build not deployed", text: `Endpoint 404 after retries: ${status.urls?.find((item) => item.state === "deploy-failed")?.url || "unknown"}`, loading: false },
+    "schema-failed": { icon: "×", title: "Migration failed", text: `Migration failed at ${status.failed_at || "unknown file"}: ${status.error || "unknown error"}`, loading: false },
+    "schema-timeout": { icon: "…", title: "Migration timeout", text: status.error || "Migration runner did not deploy within 3 minutes.", loading: false },
   };
 
   const state = states[status.status] || { icon: "◌", title: "Waiting", text: "The request is being prepared.", loading: false };
   ui.runStatusMain.dataset.status = status.status || "idle";
   ui.runStatusIcon.textContent = state.icon;
   ui.runStatusTitle.textContent = state.title;
-  ui.runStatusText.textContent = state.text;
+  const committed = status.status === "working" && /Commit SHA:\s*[a-f0-9]{7,40}/i.test(String(status.liveResponse || ""));
+  ui.runStatusText.textContent = committed ? "Committed · awaiting build..." : state.text;
   ui.runStatusLoader.hidden = !state.loading;
   ui.runStatusTime.textContent = formatStatusTime(status.completedAt || status.detectedAt || status.dispatchedAt || status.startedAt || status.updatedAt);
   if (ui.runResponseMirror && ui.runResponseBody && ui.runResponseState) {
@@ -233,6 +240,7 @@ async function openActiveConversation() {
 }
 
 function renderSendButton(sending = false) {
+  ui.sendCommand.dataset.sending = String(sending);
   ui.sendCommand.innerHTML = sending
     ? '<span class="send-mark" aria-hidden="true">◌</span><b>Sending…</b><span class="send-arrow" aria-hidden="true">→</span>'
     : '<span class="send-mark" aria-hidden="true">✦</span><b>Send</b><span class="send-arrow" aria-hidden="true">➜</span>';
@@ -270,7 +278,7 @@ async function sendCommand() {
       ? "Connect this project to GitHub to send requests through LovaRPM."
       : message, /github|repository|repositório|no github|sem github|not connected|não conectado/i.test(message) ? "error" : "");
   }
-  finally { ui.sendCommand.disabled = false; renderSendButton(false); await refreshChat(); }
+  finally { renderSendButton(false); await renderConfig(await getConfig()); await refreshChat(); }
 }
 
 function updateCounter() { ui.commandCounter.textContent = ""; }
@@ -336,7 +344,7 @@ async function downloadCurrentProject() {
   showFeedback("Project download started.");
 }
 
-async function renderConfig(config) { ui.enabled.checked = Boolean(config.enabled); ui.sendCommand.disabled = !config.enabled; }
+async function renderConfig(config) { ui.enabled.checked = Boolean(config.enabled); ui.sendCommand.disabled = !config.enabled || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(String(workspace.repository || "").trim()) || ui.sendCommand.dataset.sending === "true"; }
 ui.enabled.addEventListener("change", async () => { const config = await getConfig(); await renderConfig(await setConfig({ ...config, enabled: ui.enabled.checked })); });
 ui.refreshRepo.addEventListener("click", (event) => { event.preventDefault(); event.stopImmediatePropagation(); void reloadLovableAndExtensionUi(); }, true);
 ui.useOpen.addEventListener("click", async () => { ui.useOpen.disabled = true; ui.help.textContent = "Choose the conversation to reserve for this project."; try { const changed = await useOpenConversation(); if (changed) await refreshChat(); } catch (error) { ui.help.textContent = error?.message || String(error); } finally { ui.useOpen.disabled = false; } });
