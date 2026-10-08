@@ -1,0 +1,219 @@
+(() => {
+  if (window.__LOVABURST_NATIVE_COMPOSER__) return;
+  window.__LOVABURST_NATIVE_COMPOSER__ = true;
+  const core = globalThis.__LOVABURST_COMPOSER_CORE__;
+  if (!core) return;
+
+  const UI_ID = "lovaburst-composer-ui";
+  const TOAST_LOGO_URL = chrome.runtime.getURL("assets/logo.png");
+  const OLD_BUTTON_ID = "lovaburst-capture-button";
+  let uiHost = null, shadow = null, controls = null, toast = null, frame = null, observer = null, scanTimer = null;
+  let busy = false, enhancing = false, lastPointerSubmitAt = 0, lastPath = location.pathname;
+  let originalPaddingRight = "", decoratedHost = null, lastStatusSignature = "", toastTimer = null, frameResetTimer = null;
+
+  const css = `:host{all:initial}.lb-controls{position:fixed;z-index:2147483645;display:flex;gap:4px;align-items:center;font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}.lb-btn{height:27px;min-width:27px;border:1px solid rgba(148,163,184,.14);border-radius:8px;background:rgba(7,9,16,.78);color:#94a3b8;box-shadow:0 5px 16px rgba(0,0,0,.16);backdrop-filter:blur(10px);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:5px;padding:0 7px;font:650 10px/1 system-ui;transition:background .2s ease,border-color .2s ease,color .2s ease,box-shadow .2s ease}.lb-btn:hover{background:rgba(15,23,42,.9);color:#e2e8f0}.lb-mode[data-on="true"]{color:#a5f3fc;border-color:rgba(34,211,238,.42);background:linear-gradient(125deg,rgba(6,182,212,.2),rgba(37,99,235,.16) 52%,rgba(79,70,229,.2));box-shadow:0 0 0 1px rgba(34,211,238,.06),0 0 16px rgba(37,99,235,.15)}.lb-dot{width:5px;height:5px;border-radius:50%;background:currentColor;box-shadow:0 0 8px currentColor}.lb-boost{color:#c4b5fd}.lb-controls[data-active="true"] .lb-boost{border-color:rgba(139,92,246,.25);box-shadow:0 0 12px rgba(124,58,237,.08)}.lb-btn:disabled{opacity:.42;cursor:default}.lb-frame{position:fixed;z-index:2147483644;pointer-events:none;box-sizing:border-box;opacity:0;transition:opacity .22s ease,filter .22s ease,box-shadow .22s ease}.lb-frame::before{content:"";position:absolute;inset:0;padding:1.5px;border-radius:inherit;background:linear-gradient(125deg,#22d3ee 0%,#0ea5e9 23%,#2563eb 46%,#4f46e5 70%,#8b5cf6 100%);background-size:220% 220%;-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;opacity:.96}.lb-frame::after{content:"";position:absolute;inset:1px;border-radius:inherit;background:radial-gradient(circle at 7% 30%,rgba(34,211,238,.075),transparent 38%),radial-gradient(circle at 93% 70%,rgba(124,58,237,.075),transparent 40%);opacity:.9}.lb-frame[data-active="true"]{opacity:1;box-shadow:-7px 0 24px rgba(34,211,238,.12),7px 0 26px rgba(79,70,229,.13),0 0 0 1px rgba(37,99,235,.04)}.lb-frame[data-state="working"]::before{background-size:260% 260%;animation:lbframeflow 5.5s ease-in-out infinite}.lb-frame[data-state="working"]{box-shadow:-8px 0 28px rgba(34,211,238,.15),8px 0 30px rgba(99,102,241,.16)}.lb-frame[data-state="done"]::before{background:#34d399}.lb-frame[data-state="done"]::after{background:radial-gradient(circle at 50% 50%,rgba(52,211,153,.08),transparent 62%)}.lb-frame[data-state="done"]{box-shadow:0 0 24px rgba(52,211,153,.14)}.lb-frame[data-state="blocked"]::before{background:#f59e0b}.lb-frame[data-state="blocked"]::after{background:radial-gradient(circle at 50% 50%,rgba(245,158,11,.07),transparent 62%)}.lb-frame[data-state="blocked"]{box-shadow:0 0 22px rgba(245,158,11,.12)}.lb-frame[data-state="error"]::before{background:#fb7185}.lb-frame[data-state="error"]::after{background:radial-gradient(circle at 50% 50%,rgba(251,113,133,.07),transparent 62%)}.lb-frame[data-state="error"]{box-shadow:0 0 22px rgba(251,113,133,.12)}.lb-toast{position:fixed;z-index:2147483646;left:50%;top:72px;transform:translate(-50%,-8px);width:min(340px,calc(100vw - 32px));box-sizing:border-box;padding:11px 38px 11px 13px;border:1px solid rgba(34,211,238,.2);border-radius:13px;background:rgba(7,9,16,.9);color:#e2e8f0;box-shadow:0 18px 48px rgba(0,0,0,.32),0 0 30px rgba(79,70,229,.07);backdrop-filter:blur(16px);font-family:Inter,ui-sans-serif,system-ui;opacity:0;pointer-events:none;transition:opacity .18s ease,transform .18s ease}.lb-toast[data-open="true"]{opacity:1;transform:translate(-50%,0);pointer-events:auto}.lb-toast[data-state="done"]{border-color:rgba(52,211,153,.34)}.lb-toast[data-state="blocked"]{border-color:rgba(245,158,11,.36)}.lb-toast[data-state="error"]{border-color:rgba(251,113,133,.38)}.lb-toast-title{display:flex;align-items:center;gap:7px;font:700 11px/1.2 system-ui;color:#f8fafc}.lb-toast-mark{width:18px;height:18px;flex:0 0 18px;display:grid;place-items:center}.lb-toast-mark img{width:18px;height:18px;display:block;object-fit:contain;filter:drop-shadow(0 0 7px rgba(34,211,238,.18))}.lb-toast-text{margin-top:5px;font:500 11px/1.35 system-ui;color:#94a3b8}.lb-close{position:absolute;right:8px;top:8px;width:24px;height:24px;border:0;border-radius:7px;background:transparent;color:#64748b;cursor:pointer}.lb-close:hover{background:rgba(255,255,255,.06);color:#cbd5e1}@keyframes lbframeflow{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}@media(max-width:520px){.lb-label{display:none}.lb-btn{padding:0;min-width:27px}}@media(prefers-reduced-motion:reduce){.lb-btn,.lb-toast,.lb-frame{transition:none}.lb-spinner,.lb-frame[data-state="working"]::before{animation:none}}`;
+
+  function ensureUI() {
+    document.getElementById(OLD_BUTTON_ID)?.remove();
+    uiHost = document.getElementById(UI_ID);
+    if (!uiHost) {
+      uiHost = document.createElement("div"); uiHost.id = UI_ID;
+      shadow = uiHost.attachShadow({ mode: "open" });
+      shadow.innerHTML = `<style>${css}</style><div class="lb-frame" aria-hidden="true"></div><div class="lb-controls"><button class="lb-btn lb-mode" type="button"><span class="lb-dot"></span><span class="lb-label">LovaRPM</span></button><button class="lb-btn lb-boost" type="button" title="Enhance prompt with ChatGPT">✦</button></div><div class="lb-toast" role="status" aria-live="polite"><button class="lb-close" type="button" aria-label="Close">×</button><div class="lb-toast-title"><span class="lb-toast-mark"><img src="${TOAST_LOGO_URL}" alt="" aria-hidden="true"></span><span class="lb-toast-heading">LovaRPM</span></div><div class="lb-toast-text"></div></div>`;
+      document.documentElement.appendChild(uiHost);
+      controls = shadow.querySelector(".lb-controls"); toast = shadow.querySelector(".lb-toast"); frame = shadow.querySelector(".lb-frame");
+      shadow.querySelector(".lb-close").addEventListener("click", hideToast);
+      shadow.querySelector(".lb-mode").addEventListener("click", async (event) => {
+        event.preventDefault(); event.stopPropagation();
+        if (!core.state.projectId) return;
+        if (!core.state.globalEnabled) { const stored = await chrome.storage.local.get("config"); await chrome.storage.local.set({ config: { ...(stored.config || {}), enabled: true } }); core.state.globalEnabled = true; }
+        await core.setMode(!core.state.projectEnabled); renderControls(); decorate();
+      });
+      shadow.querySelector(".lb-boost").addEventListener("click", (event) => { event.preventDefault(); event.stopPropagation(); void boost(); });
+    } else { shadow = uiHost.shadowRoot; controls = shadow?.querySelector(".lb-controls"); toast = shadow?.querySelector(".lb-toast"); frame = shadow?.querySelector(".lb-frame"); }
+    renderControls(); positionControls(); decorate();
+  }
+
+  function showToast(state, heading, text, options = {}) {
+    if (!toast) return;
+    clearTimeout(toastTimer); toast.dataset.state = state || ""; toast.dataset.open = "true";
+    toast.querySelector(".lb-toast-mark").innerHTML = `<img src="${TOAST_LOGO_URL}" alt="" aria-hidden="true">`;
+    toast.querySelector(".lb-toast-heading").textContent = heading; toast.querySelector(".lb-toast-text").textContent = text;
+    toast.querySelector(".lb-close").style.display = options.closable ? "block" : "none";
+    if (options.duration) toastTimer = setTimeout(hideToast, options.duration);
+  }
+  function hideToast() { if (toast) toast.dataset.open = "false"; clearTimeout(toastTimer); }
+
+  function renderControls() {
+    if (!shadow) return;
+    const active = core.active(), mode = shadow.querySelector(".lb-mode"), boostButton = shadow.querySelector(".lb-boost");
+    const platformName = core.state.platform === "base44" ? "Base44" : "Lovable";
+    mode.dataset.on = String(active); mode.querySelector(".lb-label").textContent = active ? "LovaRPM" : platformName;
+    mode.title = active ? "LovaRPM mode is enabled. License and ChatGPT connection are checked when sending." : `Direct ${platformName} mode — your requests will be sent directly to ${platformName}.`;
+    controls.dataset.active = String(active);
+    boostButton.disabled = !core.state.projectId || !core.state.globalEnabled || busy || enhancing;
+  }
+
+  function positionControls() {
+    const input = core.state.composer, host = core.state.host;
+    if (!controls || !input?.isConnected || !host?.isConnected || !core.visible(input)) {
+      if (controls) controls.style.display = "none";
+      if (frame) frame.dataset.active = "false";
+      return;
+    }
+    controls.style.display = "flex";
+    const hr = host.getBoundingClientRect(), cr = controls.getBoundingClientRect();
+    controls.style.left = `${Math.max(8, hr.right - (cr.width || 64) - 10)}px`;
+    controls.style.top = `${Math.max(8, hr.top + 9)}px`;
+    if (frame) {
+      frame.style.left = `${hr.left}px`; frame.style.top = `${hr.top}px`;
+      frame.style.width = `${hr.width}px`; frame.style.height = `${hr.height}px`;
+      frame.style.borderRadius = getComputedStyle(host).borderRadius || "16px";
+    }
+  }
+
+  function decorate() {
+    const input = core.state.composer, host = core.state.host;
+    decoratedHost = host;
+    if (!input || !host) { if (frame) frame.dataset.active = "false"; return; }
+    if (!originalPaddingRight) originalPaddingRight = input.style.paddingRight || "";
+    input.style.paddingRight = core.active() ? "82px" : originalPaddingRight;
+    positionControls();
+    if (!frame) return;
+    const active = core.active();
+    frame.dataset.active = String(active);
+    if (!active) { frame.dataset.state = ""; return; }
+    frame.dataset.state = busy || enhancing ? "working" : (host.dataset.lovaburstStatus || "active");
+  }
+
+  function resetFrameSoon(delay = 2200) {
+    clearTimeout(frameResetTimer);
+    frameResetTimer = setTimeout(() => {
+      if (core.state.host?.isConnected) core.state.host.dataset.lovaburstStatus = "active";
+      decorate();
+    }, delay);
+  }
+
+  async function submit() {
+    if (!core.active() || busy || enhancing || !core.state.composer?.isConnected) return;
+    const text = core.read(); if (!text) return;
+    busy = true; renderControls(); decorate(); showToast("sending", "LovaRPM", "Sending your request...", { loading: true });
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "LOVABURST_COMPOSER_SUBMIT", objective: text, projectId: core.state.projectId });
+      if (!response?.ok) throw new Error(response?.error || "Could not send through LovaRPM.");
+      if (core.state.composer?.isConnected && core.read() === text) core.write("");
+      showToast("working", "LovaRPM", "ChatGPT is working...", { loading: true });
+    } catch (error) { showToast("error", "LovaRPM", error instanceof Error ? error.message : "Could not complete the submission.", { closable: true, duration: 9000 }); if (core.state.host) core.state.host.dataset.lovaburstStatus = "error"; resetFrameSoon(); }
+    finally { busy = false; renderControls(); decorate(); }
+  }
+
+  async function enhanceText(original) {
+    const response = await chrome.runtime.sendMessage({
+      type: "LOVABURST_ENHANCE_PROMPT",
+      text: original,
+      projectId: core.state.projectId,
+      repository: core.repository(),
+      title: document.title,
+    });
+    const enhanced = String(response?.text || "").trim();
+    if (!response?.ok || !enhanced) {
+      throw new Error(response?.error || "Could not enhance the prompt.");
+    }
+    return enhanced;
+  }
+
+  async function boost() {
+    if (!core.state.composer?.isConnected || enhancing || busy || !core.state.globalEnabled || !core.state.projectId) return;
+    const original = core.read();
+    if (!original) { showToast("", "Enhance prompt", "First, enter the text you want to improve.", { duration: 3200 }); return; }
+    enhancing = true; renderControls(); decorate(); showToast("working", "LovaRPM", "Enhancing your prompt with ChatGPT...", { loading: true });
+    try {
+      const enhanced = await enhanceText(original);
+      if (core.state.composer?.isConnected && core.read() === original) {
+        core.write(enhanced);
+        showToast("done", "Prompt enhanced", "Review the text before sending.", { duration: 4200 });
+      }
+    } catch (error) {
+      showToast("error", "Enhance prompt", error instanceof Error ? error.message : "Could not enhance the prompt.", { closable: true, duration: 9000 });
+    } finally {
+      enhancing = false; renderControls(); decorate();
+    }
+  }
+
+  function syncRunStatus() {
+    void core.runStatus().then((run) => {
+      const status = run?.status || "", signature = `${status}|${run?.updatedAt || ""}|${run?.marker || ""}`;
+      if (!status || signature === lastStatusSignature) return; lastStatusSignature = signature;
+      if (core.state.host) core.state.host.dataset.lovaburstStatus = status;
+      if (status === "sending") showToast("sending", "LovaRPM", "Sending your request...", { loading: true });
+      else if (status === "working") showToast("working", "LovaRPM", "ChatGPT is working...", { loading: true });
+      else if (status === "done") { showToast("done", "LovaRPM", "Change complete.", { duration: 3800 }); resetFrameSoon(1800); }
+      else if (status === "blocked") { showToast("blocked", "LovaRPM", "The run needs your attention.", { closable: true, duration: 10000 }); resetFrameSoon(); }
+      else if (status === "error") { showToast("error", "LovaRPM", "Could not complete the run.", { closable: true, duration: 10000 }); resetFrameSoon(); }
+      decorate();
+    });
+  }
+
+  function nativeSend(target) {
+    const button = target?.closest?.("button,[role='button']"), input = core.state.composer, host = core.state.host;
+    if (!button || !input || !host || uiHost?.contains(button)) return false;
+    const form = input.closest("form"), sameArea = host.contains(button) || (form && form.contains(button)) || button.closest("form") === form;
+    if (!sameArea || !core.visible(button)) return false;
+    const label = [button.getAttribute("aria-label"), button.getAttribute("title"), button.getAttribute("data-testid"), button.getAttribute("name"), button.textContent].filter(Boolean).join(" ").toLowerCase();
+    if (/microphone|\bmic\b|voice|voz|audio|áudio|attach|anex|upload|paperclip|\bplus\b|adicionar|\badd\b|mode|modo|settings|config|image|imagem|camera|câmera/.test(label)) return false;
+    if (/send|enviar|submit|arrow.?up|seta.?cima/.test(label) || button.getAttribute("type") === "submit" || /send|submit/.test(button.getAttribute("data-testid") || "")) return true;
+    const br = button.getBoundingClientRect(), cr = input.getBoundingClientRect();
+    return br.width <= 64 && br.height <= 64 && br.right >= cr.right - 92 && Math.abs(br.bottom - cr.bottom) < 95 && Boolean(button.querySelector("svg")) && !label;
+  }
+  function block(event) { event.preventDefault(); event.stopPropagation(); event.stopImmediatePropagation(); }
+  function isComposerTarget(target) { const input = core.state.composer; return Boolean(input && target instanceof Node && (target === input || input.contains(target))); }
+  function onKey(event) { if (!core.active() || !isComposerTarget(event.target)) return; if (event.key !== "Enter" || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.isComposing || event.keyCode === 229) return; block(event); void submit(); }
+  function onPointer(event) { if (!core.active() || !nativeSend(event.target)) return; block(event); lastPointerSubmitAt = Date.now(); void submit(); }
+  function onClick(event) { if (!core.active() || !nativeSend(event.target)) return; block(event); if (Date.now() - lastPointerSubmitAt >= 900) void submit(); }
+  function schedule(delay = 180) { clearTimeout(scanTimer); scanTimer = setTimeout(() => { core.scan(); ensureUI(); }, delay); }
+  async function navigation() { if (location.pathname !== lastPath) { lastPath = location.pathname; await core.loadMode(); schedule(60); } else if (!core.state.composer?.isConnected) schedule(80); else { positionControls(); decorate(); } }
+
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type !== "LOVABURST_ENHANCE_FROM_POPUP") return false;
+
+    const original = String(message.text || "").trim();
+    const projectId = String(message.projectId || "").trim();
+    if (!original) {
+      sendResponse({ ok: false, error: "Enter a request before enhancing it." });
+      return false;
+    }
+    if (!projectId || projectId !== core.state.projectId) {
+      sendResponse({ ok: false, error: `The open ${core.state.platform === "base44" ? "Base44" : "Lovable"} project does not match the extension project.` });
+      return false;
+    }
+    if (enhancing || busy) {
+      sendResponse({ ok: false, error: "LovaRPM is already processing another action for this project." });
+      return false;
+    }
+
+    enhancing = true;
+    renderControls();
+    decorate();
+
+    enhanceText(original)
+      .then((text) => sendResponse({ ok: true, text }))
+      .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }))
+      .finally(() => {
+        enhancing = false;
+        renderControls();
+        decorate();
+      });
+    return true;
+  });
+
+  function start() {
+    document.getElementById(OLD_BUTTON_ID)?.remove();
+    document.addEventListener("keydown", onKey, true); document.addEventListener("pointerdown", onPointer, true); document.addEventListener("click", onClick, true);
+    addEventListener("resize", positionControls, { passive: true }); addEventListener("scroll", positionControls, { passive: true, capture: true }); addEventListener("popstate", () => void navigation());
+    const root = document.body || document.documentElement;
+    observer = new MutationObserver(() => { document.getElementById(OLD_BUTTON_ID)?.remove(); if (!core.state.composer?.isConnected || !uiHost?.isConnected) schedule(220); }); observer.observe(root, { childList: true, subtree: true });
+    chrome.storage.onChanged.addListener((changes, area) => { if (area !== "local") return; if (changes.config || changes[core.MODE_KEY]) void core.loadMode().then(() => { renderControls(); decorate(); }); if (changes[core.RUN_KEY]) syncRunStatus(); });
+    setInterval(() => void navigation(), 900); void core.loadMode().finally(() => { core.scan(); ensureUI(); syncRunStatus(); });
+  }
+  start();
+})();

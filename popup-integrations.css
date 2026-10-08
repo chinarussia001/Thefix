@@ -1,0 +1,22 @@
+.project-card.integrations-card{display:grid;grid-template-columns:1fr;gap:10px;padding:12px 13px}
+.workspace-head{display:grid;grid-template-columns:40px minmax(0,1fr) 40px;align-items:center;gap:10px}
+.workspace-head .project-symbol{width:40px;height:40px}
+.workspace-copy{display:grid;gap:4px;min-width:0}.workspace-copy>span{font:800 10px/1.2 var(--mono);letter-spacing:.13em;color:var(--cyan2)}
+.workspace-copy strong{font-size:12px;line-height:1.3;color:#e8eef8;overflow-wrap:anywhere;word-break:break-word}
+.workspace-refresh{width:40px;height:40px;border:1px solid var(--line-soft);border-radius:10px;background:rgba(255,255,255,.025);color:var(--muted);font-size:16px;transition:.18s}
+.workspace-refresh:hover{border-color:rgba(103,232,249,.22);color:white;background:rgba(103,232,249,.05)}
+.integration-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.integration-card{min-width:0;display:grid;grid-template-columns:26px minmax(0,1fr);gap:8px;align-items:center;padding:9px 10px;border:1px solid var(--line-soft);border-radius:11px;background:rgba(4,7,13,.54);box-shadow:inset 0 1px 0 rgba(255,255,255,.025)}
+.integration-icon{width:26px;height:26px;display:grid;place-items:center;border-radius:8px;border:1px solid rgba(148,163,184,.10);background:rgba(255,255,255,.025);color:#b8c2d6}
+.integration-icon svg{width:15px;height:15px;display:block;fill:currentColor}
+.integration-copy{display:grid;gap:2px;min-width:0}.integration-title{display:flex;align-items:center;gap:6px;min-width:0}.integration-title strong{font-size:11px;line-height:1.2;color:#f1f5f9}.integration-dot{width:6px;height:6px;border-radius:50%;background:#64748b;box-shadow:0 0 0 2px rgba(100,116,139,.08)}
+.integration-copy>small{display:block;min-width:0;font:600 9px/1.25 var(--mono);color:var(--muted2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.integration-state,#repositoryState{font:650 8px/1.2 var(--mono);color:#64748b;text-transform:uppercase;letter-spacing:.05em;white-space:nowrap;background:none;border:0;padding:0}
+.integration-card[data-state="connected"]{border-color:rgba(52,211,153,.14);background:rgba(52,211,153,.025)}.integration-card[data-state="connected"] .integration-dot{background:var(--green);box-shadow:0 0 8px rgba(52,211,153,.55)}.integration-card[data-state="connected"] .integration-state,.integration-card[data-state="connected"] #repositoryState{color:#86efac}
+.integration-card[data-state="disconnected"]{border-color:rgba(251,113,133,.16);background:rgba(251,113,133,.025)}.integration-card[data-state="disconnected"] .integration-dot{background:var(--danger);box-shadow:0 0 8px rgba(251,113,133,.45)}.integration-card[data-state="disconnected"] .integration-state,.integration-card[data-state="disconnected"] #repositoryState{color:#fda4af}
+.integration-card[data-state="unused"] .integration-dot{background:#64748b;box-shadow:none}.integration-card[data-state="unused"] .integration-state{color:#94a3b8}
+.integration-card[data-state="loading"] .integration-dot{background:var(--cyan2);box-shadow:0 0 8px rgba(34,211,238,.38);animation:integration-pulse 1.2s ease-in-out infinite}.integration-card[data-state="loading"] .integration-state,.integration-card[data-state="loading"] #repositoryState{color:#67e8f9}
+@keyframes integration-pulse{50%{opacity:.42}}
+@media(max-width:430px){.integration-grid{grid-template-columns:1fr}.integration-card{padding:8px 9px}.integration-copy>small{white-space:normal;overflow-wrap:anywhere;word-break:break-word}.workspace-head{grid-template-columns:36px minmax(0,1fr) 40px}.workspace-head .project-symbol{width:36px;height:36px}}
+@media(max-width:340px){.project-card.integrations-card{padding:10px}.integration-card{grid-template-columns:24px minmax(0,1fr);gap:7px}.integration-icon{width:24px;height:24px}.workspace-copy strong{font-size:11px}}
+@media(prefers-reduced-motion:reduce){.integration-card[data-state="loading"] .integration-dot{animation:none}}

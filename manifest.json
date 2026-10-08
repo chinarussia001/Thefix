@@ -1,0 +1,135 @@
+{
+  "manifest_version": 3,
+  "name": "LovaRPM",
+  "version": "2.9.8",
+  "description": "LovaRPM extension for Lovable and Base44 projects, with GitHub as the primary source for code changes.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "scripting",
+    "sidePanel",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://lovable.dev/*",
+    "https://app.base44.com/*",
+    "https://chatgpt.com/*",
+    "https://oypjjsyqpnxvkadatkbi.supabase.co/*",
+    "https://happy-little101.lovable.app/*"
+  ],
+  "background": {
+    "service_worker": "src/background/service-worker-v020.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "LovaRPM",
+    "default_icon": {
+      "16": "assets/icon16.png",
+      "32": "assets/icon32.png",
+      "48": "assets/icon48.png",
+      "128": "assets/icon128.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://app.base44.com/apps/*"
+      ],
+      "js": [
+        "src/content/base44-github-probe.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://app.base44.com/apps/*"
+      ],
+      "js": [
+        "src/content/lovable-context-guard.js",
+        "src/shared/attachments.js",
+        "src/content/base44.js",
+        "src/content/lovable-composer-core.js",
+        "src/content/lovable-attachments.js",
+        "src/content/lovable-composer.js",
+        "src/content/lovable-run-monitor.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://lovable.dev/*"
+      ],
+      "js": [
+        "src/content/lovable-page-probe.js",
+        "src/content/lovable-gitsync-autoprobe.js",
+        "src/content/lovable-supabase-autoprobe.js",
+        "src/content/lovable-gitsync-sticky.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://lovable.dev/*"
+      ],
+      "css": [
+        "src/content/lovable-legacy-ui.css"
+      ],
+      "js": [
+        "src/content/lovable-context-guard.js",
+        "src/shared/attachments.js",
+        "src/content/lovable.js",
+        "src/content/lovable-composer-core.js",
+        "src/content/lovable-attachments.js",
+        "src/content/lovable-integrations.js",
+        "src/content/lovable-supabase-state-bridge.js",
+        "src/content/lovable-composer.js",
+        "src/content/lovable-run-monitor.js",
+        "src/content/lovable-logo-refresh.js",
+        "src/content/lovable-preview-refresh.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://chatgpt.com/*"
+      ],
+      "js": [
+        "src/content/chatgpt-context-guard.js",
+        "src/content/chatgpt-visibility.js",
+        "src/content/chatgpt.js",
+        "src/content/chatgpt-prompt-card.js",
+        "src/content/chatgpt-attachments.js",
+        "src/content/chatgpt-enhance.js",
+        "src/content/chatgpt-activity.js",
+        "src/content/chatgpt-result-refresh.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "side_panel": {
+    "default_path": "src/popup/popup.html"
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArNCzS+xEL2uwSQ0xI+WPxfWWPp8f0Wer8QwO3TiinvKWcuGJ2lVrtdm8LfOCC7u+gpfetK4d1bXHYBOApiK9bS6G2CnwWWzaC5q2BTPHHsM4lI/NVWiqSZhe+UYnAAT524yBQ0yDTD82L/u8drYOjiJZBkebe1Mh30SJ/c+HPSDCABj5yAoOTamfUdlQ+Dnl2XKjte2VadTG2Fj0ZDqqpR5+cj9A/rkloajfDDF6YCRK4wF+a2Z3G/YboMfBX7FgksbzblROYi4mBUenQgcNMtDiK9AJvn0JXuY6x+2tW2U197Pj3m/u/5Th5N9ekgtj/tKxKSvGIXaS/8MCoCiqMQIDAQAB",
+  "icons": {
+    "16": "assets/icon16.png",
+    "32": "assets/icon32.png",
+    "48": "assets/icon48.png",
+    "128": "assets/icon128.png"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "assets/logo.png",
+        "assets/logo.svg"
+      ],
+      "matches": [
+        "https://lovable.dev/*",
+        "https://app.base44.com/*",
+        "https://chatgpt.com/*"
+      ]
+    }
+  ],
+  "version_name": "Brazil's best extension, always up to date"
+}

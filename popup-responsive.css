@@ -1,0 +1,78 @@
+/* Responsive compact layer: keeps the existing LovaRPM visual identity while adapting narrow side panels. */
+html,body{min-width:0;width:100%;max-width:100%;overflow-x:clip}
+body{min-width:0}
+.app-shell{width:100%;max-width:640px;padding:clamp(10px,3.2vw,18px);gap:clamp(9px,2.4vw,13px)}
+.tab-panel{gap:clamp(9px,2.4vw,13px)}
+.command-card{padding:clamp(13px,3.2vw,16px)}
+.command-head{margin-bottom:10px}
+.editor textarea{min-height:118px;max-height:260px;padding:13px 14px;font-size:clamp(13px,3.7vw,14px)}
+.editor>#commandCounter{display:none}
+.project-info strong,.project-info small,.run-objective,.connected-main span,.chat-title span{overflow-wrap:anywhere;word-break:break-word}
+.active-skills-strip,.active-skills-strip>div,.skills-footer,.connected-actions,.app-footer{flex-wrap:wrap}
+.chat-buttons button,.connected-actions button,.skills-footer button,.send-button{min-height:40px}
+.skill-card{min-width:0}
+.run-status-loader[hidden]{display:none!important}
+
+/* Primary CTA — graphite core with a restrained LovaRPM spectrum border. */
+.send-button{
+  position:relative;isolation:isolate;width:100%;min-width:0;min-height:46px;margin-top:10px;padding:1px;
+  display:grid;grid-template-columns:32px minmax(0,1fr) 32px;align-items:center;gap:9px;
+  border:0;border-radius:11px;color:#f4f7fb;
+  background:linear-gradient(112deg,rgba(103,232,249,.72),rgba(59,130,246,.62) 38%,rgba(99,102,241,.66) 68%,rgba(139,92,246,.72));
+  box-shadow:0 8px 24px rgba(37,99,235,.08),0 0 0 1px rgba(103,232,249,.035);
+  font-size:13px;font-weight:650;letter-spacing:.005em;overflow:hidden;transition:transform .18s ease,filter .2s ease,box-shadow .2s ease;
+}
+.send-button::before{
+  content:"";position:absolute;z-index:-1;inset:1px;border-radius:10px;
+  background:radial-gradient(circle at 20% 0%,rgba(34,211,238,.075),transparent 38%),radial-gradient(circle at 82% 110%,rgba(99,102,241,.10),transparent 42%),linear-gradient(145deg,#111724,#090d16 72%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.055),inset 0 -1px 0 rgba(148,163,184,.025);
+}
+.send-button b{min-width:0;font-weight:650;line-height:1.2;text-align:center;white-space:normal}
+.send-button .send-mark,.send-button .send-arrow{
+  width:30px;height:30px;display:grid;place-items:center;border-radius:8px;
+  border:1px solid rgba(148,163,184,.10);background:rgba(255,255,255,.025);line-height:1;
+}
+.send-button .send-mark{color:#a5f3fc;font-size:13px;text-shadow:0 0 12px rgba(103,232,249,.28)}
+.send-button .send-arrow{color:#c7d2fe;font-size:15px;transition:transform .2s ease,border-color .2s ease,background .2s ease,color .2s ease}
+.send-button:hover:not(:disabled){transform:translateY(-1px);filter:brightness(1.08);box-shadow:0 11px 30px rgba(59,130,246,.11),0 0 22px rgba(99,102,241,.055)}
+.send-button:hover:not(:disabled) .send-arrow{transform:translateX(2px);border-color:rgba(103,232,249,.18);background:rgba(99,102,241,.075);color:#e0e7ff}
+.send-button:active:not(:disabled){transform:scale(.99);filter:brightness(.98)}
+.send-button:focus-visible{outline:2px solid rgba(103,232,249,.92);outline-offset:3px;box-shadow:0 0 0 5px rgba(34,211,238,.09),0 10px 28px rgba(59,130,246,.10)}
+.send-button:disabled{opacity:.62;cursor:default;filter:saturate(.72)}
+.send-button:disabled .send-mark{animation:cta-spin 1.05s linear infinite}
+@keyframes cta-spin{to{transform:rotate(360deg)}}
+
+@media(max-width:520px){
+  .topbar{gap:10px;padding-bottom:4px}.brand-logo{width:42px;height:42px}.brand{gap:9px}.brand strong{font-size:20px}.brand-copy>span{font-size:10px}
+  .project-card{grid-template-columns:38px minmax(0,1fr) auto;gap:9px;padding:11px 12px}.project-symbol{width:38px;height:38px}.project-actions button{width:40px;height:40px}
+  .tabs{gap:3px;padding:4px}.tab{height:40px;gap:5px;padding-inline:5px;font-size:11px;min-width:0}.tab b{min-width:17px;height:17px}
+  .command-head h1{font-size:clamp(17px,5vw,19px)}.command-head p{font-size:11px}.command-head kbd{display:none}
+  .run-status-card,.chat-card,.connected-card{padding:12px}.run-status-main{grid-template-columns:36px minmax(0,1fr) auto;gap:9px;padding:9px}.run-status-icon{width:36px;height:36px}
+  .chat-buttons{grid-template-columns:1fr 1fr}.chat-buttons button{min-width:0;padding-inline:9px}.chat-buttons small{display:none}
+  .skills-hero{padding:13px}.skills-grid{grid-template-columns:1fr}.skill-card{min-height:76px;padding:10px}
+  .empty-state{padding:28px 16px}
+}
+
+@media(max-width:390px){
+  .app-shell{padding:10px;gap:9px}.topbar{gap:7px}.brand-logo{width:38px;height:38px}.brand strong{font-size:18px}.brand-copy>span{display:none}.version-box button{padding:6px 7px}
+  .project-card{grid-template-columns:34px minmax(0,1fr) 40px;padding:10px}.project-symbol{width:34px;height:34px}.project-info strong{font-size:12px}.project-info small{font-size:9px}
+  .tabs{border-radius:11px}.tab{font-size:10.5px}.tab-icon{display:none}
+  .command-card{padding:12px}.editor textarea{min-height:112px;padding:12px 12px 14px}
+  .send-button{grid-template-columns:29px minmax(0,1fr) 29px;gap:7px;font-size:12.5px}.send-button .send-mark,.send-button .send-arrow{width:27px;height:27px;border-radius:7px}
+  .status-label{gap:8px}.status-label>span{font-size:9px}.run-status-main{grid-template-columns:34px minmax(0,1fr)}.run-status-icon{width:34px;height:34px}.run-status-loader{grid-column:2;padding:0}
+  .chat-buttons{grid-template-columns:1fr}.connected-actions{display:grid;grid-template-columns:1fr 1fr}.connected-actions button:first-child{grid-column:1/-1}
+  .skills-hero{gap:9px}.skills-orb{width:38px;height:38px}.skills-hero h2{font-size:15px}.skill-card{grid-template-columns:34px minmax(0,1fr) 16px;gap:8px}.skill-card>span{width:34px;height:34px}
+  .skills-footer{align-items:stretch}.skills-footer span{flex:1 1 100%}.skills-footer button{width:100%}
+  .app-footer{display:grid;grid-template-columns:1fr 1fr;gap:6px 10px}.app-footer button,.app-footer label{min-height:36px}.app-footer label{justify-self:end;margin:0}#footerVersion{margin:0;justify-self:end}
+}
+
+@media(max-width:340px){
+  .brand-live{display:none!important}.tab{padding-inline:3px}.tab b{display:none}.project-info span{font-size:8px}.connected-main{align-items:flex-start}.connected-badge{display:none}
+  .send-button{grid-template-columns:27px minmax(0,1fr) 27px;gap:5px;padding-inline:1px;font-size:12px}.send-button .send-mark,.send-button .send-arrow{width:25px;height:25px}
+}
+
+@media(max-height:560px) and (orientation:landscape){
+  .app-shell{padding-block:8px;gap:8px}.brand-logo{width:36px;height:36px}.command-head p{display:none}.editor textarea{min-height:92px}.empty-state{padding-block:20px}
+}
+
+@media(prefers-reduced-motion:reduce){.send-button,.send-button .send-arrow{transition:none}.send-button:disabled .send-mark{animation:none}}

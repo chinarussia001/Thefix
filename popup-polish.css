@@ -1,0 +1,70 @@
+/* v0.30.6 composer action layout: five equal controls in one row. */
+.lb-composer-toolbar{display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr))!important;align-items:stretch!important;gap:8px!important;min-width:0!important;padding:9px!important;flex-wrap:initial!important}
+.lb-composer-toolbar .lb-chat-indicator{display:none!important}
+.lb-composer-toolbar .lb-tool-button,.lb-composer-toolbar .send-button.lb-toolbar-send{width:100%!important;height:64px!important;min-width:0!important;min-height:64px!important;margin:0!important;padding:7px 5px!important;border:1px solid rgba(148,163,184,.13)!important;border-radius:11px!important;display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;gap:6px!important;background:linear-gradient(180deg,rgba(16,23,38,.88),rgba(9,14,25,.9))!important;color:#b7c2d3!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.02)!important;white-space:nowrap!important;position:relative!important}
+.lb-composer-toolbar .lb-tool-button svg,.lb-composer-toolbar .send-button.lb-toolbar-send svg{width:20px!important;height:20px!important;display:block!important;fill:none!important;stroke:currentColor!important;stroke-width:1.8!important;stroke-linecap:round!important;stroke-linejoin:round!important;flex:0 0 20px!important}
+.lb-composer-toolbar .lb-tool-button .lb-tool-label,.lb-composer-toolbar .send-button.lb-toolbar-send .lb-tool-label{display:block!important;font-size:9px!important;font-weight:650!important;line-height:1!important;color:inherit!important;letter-spacing:0!important;white-space:nowrap!important}
+.lb-composer-toolbar .lb-enhance-button{color:#c7a9ff!important}.lb-composer-toolbar .lb-mic-button{color:#71c4ff!important}.lb-composer-toolbar .lb-clear-button{color:#ff6678!important}
+.lb-composer-toolbar .lb-tool-button:hover:not(:disabled),.lb-composer-toolbar .send-button.lb-toolbar-send:hover:not(:disabled){border-color:rgba(103,232,249,.24)!important;background:linear-gradient(180deg,rgba(18,28,45,.94),rgba(10,17,30,.94))!important;transform:translateY(-1px)!important}
+.lb-composer-toolbar .lb-tool-button:active:not(:disabled),.lb-composer-toolbar .send-button.lb-toolbar-send:active:not(:disabled){transform:translateY(0)!important}
+.lb-composer-toolbar .lb-tool-button:focus-visible,.lb-composer-toolbar .send-button.lb-toolbar-send:focus-visible{outline:2px solid rgba(103,232,249,.72)!important;outline-offset:2px!important}
+.lb-composer-toolbar .lb-mic-button[data-listening=true]{border-color:rgba(56,189,248,.42)!important;background:rgba(14,165,233,.08)!important;color:#7dd3fc!important;animation:lb-mic-pulse 1.15s ease-in-out infinite}
+.lb-composer-toolbar .send-button.lb-toolbar-send{grid-column:auto!important;min-width:0!important;border:1px solid transparent!important;background:linear-gradient(180deg,rgba(12,20,35,.96),rgba(8,14,27,.96)) padding-box,linear-gradient(135deg,#22d3ee,#3b82f6 52%,#a855f7) border-box!important;color:#fff!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.035),0 0 16px rgba(59,130,246,.08)!important;font-size:inherit!important;font-weight:inherit!important}
+.lb-composer-toolbar .send-button.lb-toolbar-send:hover:not(:disabled){background:linear-gradient(180deg,rgba(15,25,43,.98),rgba(9,16,31,.98)) padding-box,linear-gradient(135deg,#22d3ee,#3b82f6 52%,#a855f7) border-box!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.045),0 0 20px rgba(99,102,241,.13)!important;filter:none!important}
+.lb-composer-toolbar .send-button.lb-toolbar-send svg{color:#b9c8ff!important;filter:drop-shadow(0 0 5px rgba(99,102,241,.28))}
+.lb-composer-toolbar .send-button.lb-toolbar-send::before,.lb-composer-toolbar .send-button.lb-toolbar-send .send-mark,.lb-composer-toolbar .send-button.lb-toolbar-send .send-arrow,.lb-composer-toolbar .send-button.lb-toolbar-send b{display:none!important}
+.lb-composer-toolbar .lb-send-spinner{width:20px!important;height:20px!important;flex:0 0 20px!important;border:2px solid rgba(255,255,255,.22)!important;border-top-color:#67e8f9!important;border-right-color:#a78bfa!important;border-radius:50%!important;animation:lb-send-spin .8s linear infinite!important}
+@keyframes lb-send-spin{to{transform:rotate(360deg)}}
+.app-footer #createProjectButton,.app-footer #analyzeProjectButton{border:1px solid rgba(103,232,249,.14);background:rgba(34,211,238,.04);color:#a5f3fc;font-weight:700}
+.app-footer #createProjectButton:hover,.app-footer #analyzeProjectButton:hover{border-color:rgba(103,232,249,.3);background:rgba(34,211,238,.09);color:#e0f2fe}
+.lb-special-modal{position:fixed;inset:0;z-index:100;display:grid;place-items:center;background:rgba(2,4,10,.72);padding:16px;backdrop-filter:blur(8px)}
+.lb-special-modal[hidden]{display:none}
+.lb-special-modal-card{position:relative;width:min(420px,100%);border:1px solid rgba(103,232,249,.18);border-radius:16px;background:#0b0f1a;padding:20px;box-shadow:0 24px 80px rgba(0,0,0,.6)}
+.lb-special-modal-card h2{margin:10px 0 6px;color:#fff;font-size:18px}.lb-special-modal-card p{margin:0;color:#94a3b8;font-size:12px;line-height:1.6}.lb-special-modal-card textarea{width:100%;margin-top:16px;resize:vertical;border:1px solid rgba(255,255,255,.1);border-radius:10px;background:#080b13;color:#e2e8f0;padding:11px;font:inherit;outline:0}.lb-special-modal-card textarea:focus{border-color:rgba(103,232,249,.45)}.lb-special-modal-card textarea[hidden]{display:none}
+.lb-special-close{position:absolute;top:10px;right:12px;border:0;background:none;color:#64748b;font-size:22px;cursor:pointer}.lb-special-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}.lb-special-actions button{min-height:36px}.lb-special-feedback{min-height:18px;margin-top:10px!important;color:#67e8f9!important}
+@media(max-width:390px){.lb-composer-toolbar{gap:6px!important;padding:8px!important}.lb-composer-toolbar .lb-tool-button,.lb-composer-toolbar .send-button.lb-toolbar-send{height:58px!important;min-height:58px!important;padding-inline:3px!important}.lb-composer-toolbar .lb-tool-button .lb-tool-label,.lb-composer-toolbar .send-button.lb-toolbar-send .lb-tool-label{font-size:8px!important}.lb-composer-toolbar .lb-tool-button svg,.lb-composer-toolbar .send-button.lb-toolbar-send svg{width:18px!important;height:18px!important;flex-basis:18px!important}.lb-composer-toolbar .lb-send-spinner{width:18px!important;height:18px!important;flex-basis:18px!important}}
+@media(max-width:340px){.lb-composer-toolbar{gap:4px!important;padding-inline:6px!important}.lb-composer-toolbar .lb-tool-button,.lb-composer-toolbar .send-button.lb-toolbar-send{height:54px!important;min-height:54px!important;padding-inline:2px!important}.lb-composer-toolbar .lb-tool-button .lb-tool-label,.lb-composer-toolbar .send-button.lb-toolbar-send .lb-tool-label{font-size:7.5px!important}.lb-composer-toolbar .lb-tool-button svg,.lb-composer-toolbar .send-button.lb-toolbar-send svg{width:18px!important;height:18px!important}}
+@media(max-width:300px){.lb-composer-toolbar{grid-template-columns:repeat(3,minmax(0,1fr))!important}.lb-composer-toolbar .lb-mic-button{grid-column:1!important}.lb-composer-toolbar .lb-clear-button{grid-column:3!important}}
+@media(prefers-reduced-motion:reduce){.lb-composer-toolbar .lb-tool-button,.lb-composer-toolbar .send-button.lb-toolbar-send{transition:none!important}.lb-composer-toolbar .lb-mic-button[data-listening=true],.lb-composer-toolbar .lb-send-spinner{animation:none!important}}
+
+.app-footer #refreshDataButton,.app-footer #footerVersion{display:none!important}
+.app-footer{grid-template-columns:repeat(2,minmax(0,1fr))!important}
+
+.status,.status-message,.error,.success,.notice,.license-message{line-height:1.45!important}
+.command-card>.feedback{font-size:14px!important;line-height:1.45!important}
+[data-status="positive"],[data-state="positive"],.positive{color:#39ff88!important;text-shadow:0 0 10px rgba(57,255,136,.35)}
+[data-status="negative"],[data-state="negative"],.negative{color:#ff456b!important;text-shadow:0 0 10px rgba(255,69,107,.32)}
+[data-status="success"],[data-state="success"],.success{color:#39ff88!important;text-shadow:0 0 10px rgba(57,255,136,.35)}
+[data-status="error"],[data-state="error"],.error{color:#ff456b!important;text-shadow:0 0 10px rgba(255,69,107,.32)}
+
+/* LovaRPM 2.1.6 final popup polish */
+/* Keep the license card dimensions; normalize only its internal typography and alignment. */
+.license-summary{grid-template-columns:minmax(0,1fr) auto!important;grid-template-rows:12px 14px!important;column-gap:14px!important;row-gap:2px!important;padding:8px 12px!important;align-items:center!important}
+.license-client-block>span{grid-column:1;grid-row:1;align-self:center!important;font:800 9px/1 system-ui,-apple-system,Segoe UI,sans-serif!important;letter-spacing:.11em!important}
+.license-client-block>strong{grid-column:1;grid-row:2;align-self:center!important;font:750 12px/1 system-ui,-apple-system,Segoe UI,sans-serif!important;max-width:140px!important}
+.license-expiry-row{grid-column:2;grid-row:1;align-self:center!important;justify-self:end!important;min-height:12px!important;gap:4px!important}
+.license-expiry-row>span,.license-expiry-row #licenseDetailsExpiryValue{font-family:system-ui,-apple-system,Segoe UI,sans-serif!important;font-size:9px!important;line-height:1!important}
+.license-expiry-row>span{font-weight:650!important}.license-expiry-row #licenseDetailsExpiryValue{font-weight:750!important}
+.license-status-row{grid-column:2;grid-row:2;align-self:center!important;justify-self:end!important;min-height:14px!important;gap:5px!important;align-items:center!important}
+.license-status-row .license-summary-status-label span{font:800 9px/1 system-ui,-apple-system,Segoe UI,sans-serif!important;letter-spacing:.11em!important}
+.license-status-row #licenseDetailsStatusValue[data-state="active"]{font:850 10px/1 system-ui,-apple-system,Segoe UI,sans-serif!important;letter-spacing:.08em!important}
+
+/* Footer actions: same visual language as the composer toolbar, with restrained neon accents. */
+.app-footer[data-compact=true]{gap:8px!important;padding-top:10px!important}
+.app-footer .lb-footer-control,.app-footer>label{position:relative!important;min-height:38px!important;border-radius:10px!important;overflow:hidden!important;color:#c5d0df!important;background:linear-gradient(180deg,rgba(15,22,36,.94),rgba(8,13,23,.96))!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.035),0 8px 22px rgba(0,0,0,.10)!important}
+.app-footer .lb-footer-control svg,.app-footer .lb-footer-icon svg{width:15px!important;height:15px!important;flex:0 0 15px!important;fill:none!important;stroke:currentColor!important;stroke-width:1.8!important;stroke-linecap:round!important;stroke-linejoin:round!important;filter:drop-shadow(0 0 5px currentColor)}
+.app-footer .lb-footer-label{font-size:10px!important;font-weight:750!important;line-height:1!important;white-space:nowrap!important}
+.app-footer #hideLovableBadgeButton{border-color:rgba(192,132,252,.28)!important;color:#d8b4fe!important;background:linear-gradient(180deg,rgba(88,28,135,.12),rgba(15,12,28,.94))!important}
+.app-footer #downloadProjectButton{border-color:rgba(56,189,248,.28)!important;color:#7dd3fc!important;background:linear-gradient(180deg,rgba(3,105,161,.12),rgba(8,16,27,.95))!important}
+.app-footer #createProjectButton{border-color:rgba(45,212,191,.30)!important;color:#5eead4!important;background:linear-gradient(180deg,rgba(13,148,136,.12),rgba(7,20,23,.95))!important}
+.app-footer #analyzeProjectButton{border-color:rgba(167,139,250,.30)!important;color:#c4b5fd!important;background:linear-gradient(180deg,rgba(109,40,217,.11),rgba(14,12,29,.95))!important}
+.app-footer #settingsButton{border-color:rgba(96,165,250,.25)!important;color:#93c5fd!important;background:linear-gradient(180deg,rgba(37,99,235,.10),rgba(8,14,27,.95))!important}
+.app-footer>label{border-color:rgba(57,255,136,.28)!important;color:#86efac!important;background:linear-gradient(180deg,rgba(22,163,74,.10),rgba(7,22,16,.95))!important}
+.app-footer #hideLovableBadgeButton:hover{border-color:rgba(216,180,254,.55)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 0 18px rgba(168,85,247,.12)!important}
+.app-footer #downloadProjectButton:hover{border-color:rgba(125,211,252,.55)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 0 18px rgba(14,165,233,.12)!important}
+.app-footer #createProjectButton:hover{border-color:rgba(94,234,212,.58)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 0 18px rgba(20,184,166,.13)!important}
+.app-footer #analyzeProjectButton:hover{border-color:rgba(196,181,253,.58)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 0 18px rgba(139,92,246,.13)!important}
+.app-footer #settingsButton:hover{border-color:rgba(147,197,253,.55)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 0 18px rgba(59,130,246,.12)!important}
+.app-footer>label:hover{border-color:rgba(57,255,136,.50)!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 0 18px rgba(57,255,136,.10)!important}
+.app-footer .switch-ui{box-shadow:0 0 10px rgba(34,211,238,.18)!important}.app-footer input:checked+.switch-ui{box-shadow:0 0 12px rgba(57,255,136,.28)!important}
+@media(max-width:390px){.license-summary{column-gap:10px!important}.license-client-block>strong{font-size:11.5px!important;max-width:120px!important}.license-expiry-row>span,.license-expiry-row #licenseDetailsExpiryValue{font-size:8.5px!important}.app-footer .lb-footer-label{font-size:9.5px!important}}

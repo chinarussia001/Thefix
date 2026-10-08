@@ -1,0 +1,9 @@
+#lovaburst-capture-button,
+#lovaburst-capture-style {
+  display: none !important;
+}
+
+/* Hide Lovable watermark */
+#lovable-badge {
+  display: none !important;
+}
