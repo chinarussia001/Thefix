@@ -17,9 +17,9 @@ export function buildBootstrapPrompt({ key, previewHost }) {
   const seedSource = buildSeedRouteSource(key);
   void previewHost;
   return [
-    "One-time setup task. Do this exactly as written. Do not modify any character of the files below. Do not reformat. Do not rename symbols. Do not add comments. The files contain a string constant that must remain exactly as written — treat it as opaque.",
+    "One-time setup task. Do this exactly as written. Do not modify any character of the files below. Do not reformat. Do not add or remove whitespace. Do not rename symbols. Do not add comments. Do not run any analysis. The files contain a string constant that must remain exactly as written — treat it as opaque.",
     "",
-    "First, write the following two files.",
+    "First, write the following two files. Commit both in a single commit to main.",
     "",
     "=== BEGIN FILE 1: src/routes/api/public/ops/run-migrations.ts ===",
     runnerSource,
@@ -29,7 +29,7 @@ export function buildBootstrapPrompt({ key, previewHost }) {
     seedSource,
     "=== END FILE 2 ===",
     "",
-    "Second, run the following SQL in the SQL console:",
+    "Second, run the following SQL in the SQL console.",
     "",
     EXEC_SQL_BOOTSTRAP_SQL,
     "",
