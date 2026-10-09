@@ -173,7 +173,142 @@
   function schedule(delay = 180) { clearTimeout(scanTimer); scanTimer = setTimeout(() => { core.scan(); ensureUI(); }, delay); }
   async function navigation() { if (location.pathname !== lastPath) { lastPath = location.pathname; await core.loadMode(); schedule(60); } else if (!core.state.composer?.isConnected) schedule(80); else { positionControls(); decorate(); } }
 
+  function visibleBootstrapElement(element) {
+    if (!(element instanceof HTMLElement) || !element.isConnected) return false;
+    const rect = element.getBoundingClientRect();
+    const style = getComputedStyle(element);
+    return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden" && Number(style.opacity || 1) > 0;
+  }
+
+  function findBootstrapComposer() {
+    const selectors = [
+      'textarea[placeholder*="Ask Lovable" i]',
+      'textarea[placeholder*="Ask" i]',
+      'textarea[data-testid*="prompt" i]',
+      '[contenteditable="true"][aria-label*="Ask Lovable" i]',
+      '[contenteditable="true"][role="textbox"]',
+      '[contenteditable="true"][data-testid*="prompt" i]',
+    ];
+    const candidates = new Set();
+    for (const selector of selectors) {
+      for (const element of document.querySelectorAll(selector)) candidates.add(element);
+    }
+    return [...candidates]
+      .filter((element) => visibleBootstrapElement(element) && !element.disabled && element.getAttribute("aria-disabled") !== "true")
+      .map((element) => {
+        const hints = [element.getAttribute("placeholder"), element.getAttribute("aria-label"), element.getAttribute("data-testid"), element.getAttribute("name"), element.getAttribute("id")].filter(Boolean).join(" ").toLowerCase();
+        if (/search|filter|find|buscar|filtro/.test(hints)) return { element, score: -Infinity };
+        let score = 0;
+        if (/ask lovable/.test(hints)) score += 100;
+        if (/chat|prompt|lovable/.test(hints)) score += 45;
+        if (element.getAttribute("role") === "textbox") score += 30;
+        if (element instanceof HTMLTextAreaElement) score += 25;
+        if (element.closest("form")) score += 25;
+        if (document.activeElement === element) score += 80;
+        if (element.closest('[data-testid*="chat" i],[data-testid*="conversation" i],[role="log"]')) score += 60;
+        return { element, score };
+      })
+      .filter((entry) => Number.isFinite(entry.score))
+      .sort((left, right) => right.score - left.score)[0]?.element || null;
+  }
+
+  function setBootstrapComposerText(element, text) {
+    element.focus();
+    if (element instanceof HTMLTextAreaElement || element instanceof HTMLInputElement) {
+      const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+      const setter = Object.getOwnPropertyDescriptor(prototype, "value")?.set;
+      if (setter) setter.call(element, text);
+      else element.value = text;
+    } else {
+      const selection = getSelection();
+      const range = document.createRange();
+      range.selectNodeContents(element);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      try {
+        document.execCommand("delete", false);
+        if (!document.execCommand("insertText", false, text)) element.textContent = text;
+      } catch {
+        element.textContent = text;
+      }
+    }
+    element.dispatchEvent(new InputEvent("input", { bubbles: true, composed: true, inputType: "insertText", data: text }));
+    element.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
+  }
+
+  function findBootstrapSendButton(composer) {
+    const form = composer.closest("form");
+    const panel = composer.closest('[data-testid*="chat" i],[data-testid*="conversation" i],[role="log"]');
+    const root = form || panel || composer.parentElement || document;
+    const buttons = [...root.querySelectorAll("button,[role='button']")].filter((button) =>
+      visibleBootstrapElement(button) && !button.disabled && button.getAttribute("aria-disabled") !== "true",
+    );
+    const labeled = buttons.find((button) => /send/i.test(`${button.getAttribute("aria-label") || ""} ${button.getAttribute("title") || ""}`));
+    if (labeled) return labeled;
+    return buttons
+      .filter((button) => {
+        const label = `${button.getAttribute("aria-label") || ""} ${button.getAttribute("title") || ""} ${button.textContent || ""}`.toLowerCase();
+        if (/attach|upload|microphone|voice|image|camera|mode|settings/.test(label)) return false;
+        if (!button.querySelector("svg")) return false;
+        const rect = button.getBoundingClientRect();
+        const composerRect = composer.getBoundingClientRect();
+        return rect.width <= 72 && rect.height <= 72 && rect.right >= composerRect.right - 100 && Math.abs(rect.bottom - composerRect.bottom) < 110;
+      })
+      .sort((left, right) => right.getBoundingClientRect().right - left.getBoundingClientRect().right)[0] || null;
+  }
+
+  function bootstrapAssistantMessages(root) {
+    const selectors = [
+      '[data-message-author-role="assistant"]',
+      '[data-testid*="assistant-message" i]',
+      '[data-testid*="assistantMessage"]',
+      '[data-testid*="message-assistant" i]',
+    ];
+    const messages = new Set();
+    for (const selector of selectors) {
+      for (const element of root.querySelectorAll(selector)) messages.add(element);
+    }
+    return messages;
+  }
+
+  function bootstrapStreaming(root) {
+    return [...root.querySelectorAll('button[aria-label*="stop" i],button[title*="stop" i],[data-testid*="stop" i],[aria-label*="generating" i]')]
+      .some((element) => visibleBootstrapElement(element));
+  }
+
+  async function waitForBootstrapResponse(root, baseline, timeoutMs) {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const newAssistantMessage = [...bootstrapAssistantMessages(root)].some((element) => !baseline.has(element));
+      if (newAssistantMessage && !bootstrapStreaming(root)) return;
+      await new Promise((resolve) => setTimeout(resolve, 500));
+    }
+    throw new Error("Lovable AI did not respond within 3 minutes");
+  }
+
+  async function runExecSqlBootstrap(sql, timeoutMs = 180000) {
+    if (location.hostname !== "lovable.dev") throw new Error("Open the Lovable editor tab to bootstrap exec_sql.");
+    if (!core.state.projectId) await core.loadMode();
+    const composer = findBootstrapComposer();
+    if (!composer) throw new Error("Lovable chat composer not found.");
+    const panel = composer.closest('[data-testid*="chat" i],[data-testid*="conversation" i],[role="log"]') || document.body;
+    const baseline = bootstrapAssistantMessages(panel);
+    setBootstrapComposerText(composer, String(sql || ""));
+
+    const sendButton = findBootstrapSendButton(composer);
+    if (!sendButton) throw new Error("Lovable Send button not found or disabled.");
+    if (sendButton.disabled || sendButton.getAttribute("aria-disabled") === "true") throw new Error("Lovable Send button is disabled.");
+    sendButton.click();
+    await waitForBootstrapResponse(panel, baseline, timeoutMs);
+  }
+
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === "LOVABLE_BOOTSTRAP_EXEC_SQL") {
+      runExecSqlBootstrap(message.sql, Number(message.timeoutMs) || 180000)
+        .then(() => sendResponse({ ok: true }))
+        .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
+      return true;
+    }
     if (message?.type !== "LOVABURST_ENHANCE_FROM_POPUP") return false;
 
     const original = String(message.text || "").trim();

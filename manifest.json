@@ -15,7 +15,8 @@
     "https://app.base44.com/*",
     "https://chatgpt.com/*",
     "https://oypjjsyqpnxvkadatkbi.supabase.co/*",
-    "https://happy-little101.lovable.app/*"
+    "https://happy-little101.lovable.app/*",
+    "https://*.lovableproject.com/*"
   ],
   "background": {
     "service_worker": "src/background/service-worker-v020.js",

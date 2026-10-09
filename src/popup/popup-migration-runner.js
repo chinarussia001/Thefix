@@ -26,7 +26,7 @@
   let currentProject = "";
   let inProgress = false;
   let progressStep = 0;
-  let progressTotal = 7;
+  let progressTotal = 9;
   let lastError = "";
   let refreshInFlight = false;
 
@@ -40,6 +40,17 @@
 
   function runnerUrl(id) {
     return `https://${id}.lovableproject.com/api/public/ops/run-migrations`;
+  }
+
+  function setupErrorMessage(error) {
+    const message = String(error || "Migration runner setup failed.");
+    if (/ChatGPT dispatch failed\.?/i.test(message)) return "ChatGPT is unreachable. Open a ChatGPT tab and try again.";
+    if (/\[PRM_BLOCKED\].*during setup/i.test(message)) return "ChatGPT blocked the setup commit. Check the ChatGPT tab for details.";
+    if (/Route did not deploy within 3 minutes/i.test(message)) return "Lovable did not deploy the runner route within 3 minutes. Check the preview host is live.";
+    if (/Lovable tab not open/i.test(message)) return "Open the Lovable editor to bootstrap exec_sql, then click Set up again.";
+    if (/Lovable AI did not respond within 3 minutes/i.test(message)) return "Lovable AI did not respond. Try again, or paste the bootstrap SQL manually.";
+    if (/exec_sql bootstrap failed/i.test(message)) return "exec_sql bootstrap failed. Open Lovable's SQL console and paste the bootstrap SQL manually, then click Verify.";
+    return message;
   }
 
   function syncDispatchGate(setupComplete = false) {
@@ -74,6 +85,7 @@
       syncDispatchGate(false);
       return;
     }
+    if (inProgress && id === currentProject) return;
     currentProject = id;
     const endpoint = runnerUrl(id);
     urlEl.textContent = endpoint;
@@ -98,7 +110,7 @@
       statusEl.textContent = ready ? "READY" : (setup.setupComplete || setup.error ? "FAILED" : "SETUP REQUIRED");
       setupButton.hidden = ready;
       resetButton.hidden = !ready;
-      errorEl.textContent = setup.error || lastError;
+      errorEl.textContent = setupErrorMessage(setup.error || lastError);
       errorEl.hidden = !errorEl.textContent;
       syncDispatchGate(Boolean(setup.setupComplete));
     } finally {
@@ -128,7 +140,7 @@
       await refreshStatus();
     } catch (error) {
       inProgress = false;
-      lastError = String(error?.message || error);
+      lastError = setupErrorMessage(error?.message || error);
       card.dataset.state = "disconnected";
       statusEl.textContent = "FAILED";
       errorEl.textContent = lastError;
@@ -157,7 +169,8 @@
     if (message?.type === "SETUP_PROGRESS") {
       progressStep = Number(message.payload?.step) || progressStep;
       progressTotal = Number(message.payload?.total) || progressTotal;
-      statusEl.textContent = `SETTING UP (step ${progressStep}/${progressTotal})`;
+      const progressMessage = String(message.payload?.message || "").trim();
+      statusEl.textContent = `SETTING UP (step ${progressStep}/${progressTotal})${progressMessage ? ` · ${progressMessage}` : ""}`;
       card.dataset.state = "loading";
     } else if (message?.type === "SETUP_DONE") {
       inProgress = false;
@@ -165,7 +178,7 @@
       void refreshStatus();
     } else if (message?.type === "SETUP_FAILED") {
       inProgress = false;
-      lastError = String(message.payload?.error || "Migration runner setup failed.");
+      lastError = setupErrorMessage(message.payload?.error || "Migration runner setup failed.");
       statusEl.textContent = "FAILED";
       card.dataset.state = "disconnected";
       errorEl.textContent = lastError;
