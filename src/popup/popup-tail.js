@@ -489,12 +489,6 @@ if (skillsGrid) {
   }
 }
 document.querySelectorAll("[data-skill]").forEach((card) => { card.addEventListener("click", async () => { if (!workspace.lovableProjectId) { showFeedback(`Open a ${activeBuilderName()} project before selecting Skills.`); return; } const ids = await selectedSkills(); const id = card.dataset.skill; const next = ids.includes(id) ? ids.filter((item) => item !== id) : [...ids, id]; await saveSelectedSkills(next); await renderSkills(); }); });
-ui.platformButtons.forEach((button) => button.addEventListener("click", async () => {
-  await selectPlatform(button.dataset.platform);
-  await refreshWorkspace();
-  await refreshChat();
-  await refreshRunStatus();
-}));
 ui.clearSkills?.addEventListener("click", async () => { await saveSelectedSkills([]); await renderSkills(); });
 ui.refreshData?.addEventListener("click", async () => { await refreshRepository(); await refreshChat(); await refreshRunStatus(); await renderSkills(); showFeedback("Data updated."); });
 ui.settings?.addEventListener("click", () => showFeedback("Advanced settings are part of LovaRPM's commercial tier."));
@@ -522,4 +516,4 @@ chrome.tabs.onUpdated.addListener(async (_tabId, changeInfo) => {
 chrome.tabs.onActivated.addListener(async () => { await refreshWorkspace(); await refreshChat(); });
 chrome.storage.onChanged.addListener((changes, area) => { if (area !== "local") return; if (changes.config?.newValue) void renderConfig(changes.config.newValue); if (changes.workspaceBindings || changes.pendingPrompt) void refreshWorkspace(); if (changes.projectChatBindings) void refreshChat(); if (changes.projectRunStatuses) void refreshRunStatus(); if (changes.projectSkillSelections) void renderSkills(); });
 window.setInterval(() => void refreshWorkspace(), 900); window.setInterval(() => void refreshChat(), 1800);
-(async () => { const version = chrome.runtime.getManifest().version; ui.versionText.textContent = `v${version}`; ui.footerVersion.textContent = `LovaRPM v${version}`; updateCounter(); renderSendButton(false); await selectPlatform(await selectedPlatform()); await renderConfig(await getConfig()); await refreshWorkspace(); await refreshChat(); await refreshRunStatus(); await checkForBrowserManagedUpdate(); })();
+(async () => { const version = chrome.runtime.getManifest().version; ui.versionText.textContent = `v${version}`; ui.footerVersion.textContent = `LovaRPM v${version}`; updateCounter(); renderSendButton(false); await renderConfig(await getConfig()); await refreshWorkspace(); await refreshChat(); await refreshRunStatus(); await checkForBrowserManagedUpdate(); })();
