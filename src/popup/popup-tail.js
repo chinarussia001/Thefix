@@ -1,5 +1,7 @@
 "use strict";
 
+let applyingMigrations = false;
+
 function activeBuilderName() { return "Lovable"; }
 function activeBuilderPattern() { return "https://lovable.dev/*"; }
 function activeBuilderPrefix() { return "https://lovable.dev/"; }
@@ -26,6 +28,7 @@ async function refreshRunStatus() {
     ui.runStatusLoader.hidden = true;
     ui.runObjective.hidden = true;
     if (ui.runResponseMirror) ui.runResponseMirror.hidden = true;
+    renderMigrationAction("", null);
     return;
   }
 
@@ -41,6 +44,7 @@ async function refreshRunStatus() {
     ui.runStatusLoader.hidden = true;
     ui.runObjective.hidden = true;
     if (ui.runResponseMirror) ui.runResponseMirror.hidden = true;
+    renderMigrationAction(projectId, null);
     return;
   }
 
@@ -50,7 +54,7 @@ async function refreshRunStatus() {
     done: { icon: "✓", title: "Complete", text: "ChatGPT completed this request successfully.", loading: false },
     blocked: { icon: "!", title: "Action required", text: status.marker?.startsWith("[PRM_") ? `ChatGPT reported ${status.marker}` : "ChatGPT encountered a blocker and needs your attention.", loading: false },
     error: { icon: "×", title: "Execution error", text: status.error || "This request could not be completed.", loading: false },
-    migrated: { icon: "↻", title: "Migrations applied", text: `Migrations applied: ${(status.applied || []).join(", ") || "none"}`, loading: true },
+    migrated: { icon: "↻", title: "Migrations applied", text: `Migrations applied: ${(status.applied || []).join(", ") || "none"}`, loading: false },
     live: { icon: "✓", title: "Endpoint live", text: `Endpoint live: ${status.urls?.find((item) => item.state === "live")?.url || "verified"}`, loading: false },
     "runtime-error": { icon: "×", title: "Endpoint error", text: `Endpoint 500: ${status.urls?.find((item) => item.state === "runtime-error")?.url || "unknown"}`, loading: false },
     "deploy-failed": { icon: "…", title: "Build not deployed", text: `Endpoint 404 after retries: ${status.urls?.find((item) => item.state === "deploy-failed")?.url || "unknown"}`, loading: false },
@@ -58,7 +62,7 @@ async function refreshRunStatus() {
     "schema-timeout": { icon: "…", title: "Migration timeout", text: status.error || "Migration runner did not deploy within 3 minutes.", loading: false },
     "schema-pending": { icon: "↻", title: "Schema changes pending", text: "Click the migration runner card to apply the reported migrations.", loading: false },
     "schema-touched-no-runner": { icon: "!", title: "Migration runner not configured", text: "Schema changes require manual application until the runner is configured.", loading: false },
-    "schema-manual-required": { icon: "!", title: "Manual schema application required", text: "This backend classification does not support runtime migration auto-apply.", loading: false },
+    "schema-manual-required": { icon: "!", title: "Manual schema application required", text: status.note || "Schema changed but no runner URL in the report. Apply migrations manually.", loading: false },
   };
 
   const schemaPending = status.schemaPending === true && ["done", "live"].includes(status.status);
@@ -87,6 +91,109 @@ async function refreshRunStatus() {
   if (ui.runObjective) {
     ui.runObjective.hidden = true;
     ui.runObjective.textContent = "";
+  }
+  renderMigrationAction(projectId, status);
+}
+
+function renderMigrationAction(projectId, status) {
+  const copy = ui.runStatusText?.parentElement;
+  if (!copy) return;
+  let line = copy.querySelector("#runMigrationMessage");
+  if (!line) {
+    line = document.createElement("span");
+    line.id = "runMigrationMessage";
+    line.className = "run-migration-message";
+    copy.appendChild(line);
+  }
+  let button = copy.querySelector("#applyMigrationsButton");
+  if (!button) {
+    button = document.createElement("button");
+    button.id = "applyMigrationsButton";
+    button.className = "run-migration-button";
+    button.type = "button";
+    copy.appendChild(button);
+  }
+  button.textContent = "Apply migrations";
+  button.onclick = () => void applyMigrations(projectId, status, button, line);
+  button.hidden = status?.status !== "schema-pending" || !status?.runnerUrl;
+  button.disabled = applyingMigrations;
+  line.textContent = status?.migrationMessage || "";
+  line.hidden = !line.textContent;
+}
+
+async function applyMigrations(projectId, status, button, line) {
+  if (applyingMigrations || !projectId || !status?.runnerUrl) return;
+  applyingMigrations = true;
+  button.disabled = true;
+  line.hidden = false;
+  line.textContent = "Applying migrations...";
+  let message = "";
+  let resultStatus = status.status;
+  let applied = null;
+  let skipped = null;
+  try {
+    const response = await fetch(status.runnerUrl, { method: "GET", cache: "no-store" });
+    const body = await response.json().catch(() => null);
+    if (response.status === 200 && body?.ok === true) {
+      applied = Array.isArray(body.applied) ? body.applied : [];
+      skipped = Array.isArray(body.skipped) ? body.skipped : [];
+      message = `Migrations applied: ${applied.join(", ") || "none"}`;
+      const endpointStatuses = Array.isArray(status.urls) ? status.urls : [];
+      if (status.error) resultStatus = "error";
+      else if (endpointStatuses.length && endpointStatuses.every((item) => item.state === "live")) resultStatus = "live";
+      else if (endpointStatuses.some((item) => item.state === "runtime-error")) resultStatus = "runtime-error";
+      else if (endpointStatuses.some((item) => item.state === "deploy-failed")) resultStatus = "deploy-failed";
+      else resultStatus = "done";
+    } else if (response.status === 401) {
+      message = "Key rejected (401). Check the Migration Runner card.";
+    } else if (response.status === 500) {
+      message = `Migration failed at ${body?.failed_at || "unknown"}: ${body?.error || "unknown error"}`;
+    } else {
+      message = `Runner returned ${response.status}.`;
+    }
+  } catch (error) {
+    message = `Migration request failed: ${String(error)}`;
+  }
+
+  try {
+    const stored = await chrome.storage.local.get("projectRunStatuses");
+    const statuses = stored.projectRunStatuses || {};
+    const current = statuses[projectId] || status;
+    const sameRun = status.startedAt
+      ? current.startedAt === status.startedAt
+      : status.assistantMessageKey
+        ? current.assistantMessageKey === status.assistantMessageKey
+        : current.updatedAt === status.updatedAt;
+    if (!sameRun) {
+      if (workspace.lovableProjectId === projectId) {
+        line.textContent = `${message} The run status changed before this result could be saved.`;
+        line.hidden = false;
+      }
+      return;
+    }
+    await chrome.storage.local.set({
+      projectRunStatuses: {
+        ...statuses,
+        [projectId]: {
+          ...current,
+          status: resultStatus,
+          ...(applied ? { applied, skipped, schemaPending: false } : {}),
+          migrationMessage: message,
+          updatedAt: new Date().toISOString(),
+        },
+      },
+    });
+    if (workspace.lovableProjectId === projectId) {
+      line.textContent = message;
+      line.hidden = false;
+      button.hidden = resultStatus !== "schema-pending";
+    }
+  } catch (error) {
+    line.textContent = `Could not save migration result: ${String(error)}`;
+    line.hidden = false;
+  } finally {
+    applyingMigrations = false;
+    if (button.isConnected) button.disabled = false;
   }
 }
 

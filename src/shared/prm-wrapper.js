@@ -13,7 +13,8 @@ function contextLines(ctx) {
   const owner = String(ctx?.repo?.owner || "").trim();
   const name = String(ctx?.repo?.name || "").trim();
   if (owner && name) lines.push(`repository: ${owner}/${name}`);
-  lines.push(`branch: ${String(ctx?.branch || "main").trim() || "main"}`);
+  const branch = String(ctx?.branch || "").trim();
+  if (branch) lines.push(`branch: ${branch}`);
   for (const [key, value] of [
     ["lovable_project_id", ctx?.projectId],
     ["lovable_editor_url", ctx?.editorUrl],
@@ -133,6 +134,11 @@ is supported for this classification.
 • If schema was touched for CLOUD_DRIZZLE and context has a
 migration_runner_url, print that exact URL on its own line:
 MIGRATION_RUNNER_URL: <url>
+• If schema was touched AND the classification is CLOUD_DRIZZLE AND
+PROJECT CONTEXT contained a migration_runner_url, print that URL on its
+own line, exactly as given, prefixed with the literal token
+"MIGRATION_RUNNER_URL: ". Do not modify it, shorten it, or add query
+parameters. The user will click it verbatim.
 • Anything non-pattern-matched, and why
 
 Finish with exactly one final-line marker:

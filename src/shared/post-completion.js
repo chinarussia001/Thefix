@@ -1,5 +1,3 @@
-import { getMigrationKey } from "./migration-key.js";
-
 const RUNNER_PATH = "/api/public/ops/run-migrations";
 const URL_ATTEMPTS = 5;
 const URL_INTERVAL_MS = 20000;
@@ -36,7 +34,7 @@ function parseResponse(text, project = {}) {
     urls.add(match[0].replace(/[),.;]+$/, ""));
   }
   const runnerUrlFromReport =
-    response.match(/^MIGRATION_RUNNER_URL:\s*(https?:\/\/\S+)\s*$/im)?.[1] || null;
+    response.match(/^MIGRATION_RUNNER_URL:\s*(https?:\/\/\S+)$/m)?.[1] || null;
   const reportedUrls = [...urls].filter((url) => {
     try {
       const parsed = new URL(url);
@@ -127,42 +125,25 @@ export async function runPostCompletionPipeline(projectId, assistantResponse, pr
   }
 
   const previewHost = String(project.previewHost || `https://${id}.lovableproject.com`).replace(/\/$/, "");
-  let runnerUrl = null;
+  const runnerUrl = parsed.schemaTouched ? parsed.runnerUrlFromReport : null;
   let schemaPending = false;
-  const manualSchemaApplication = parsed.schemaTouched && parsed.backendClassification !== "CLOUD_DRIZZLE";
   if (parsed.schemaTouched) {
-    if (manualSchemaApplication) {
-      await sendStatus(id, {
-        status: "schema-manual-required",
-        migration: "manual-required",
-        migrationFiles: parsed.migrationFiles,
-        ...common,
-      });
-    } else {
-      runnerUrl = parsed.runnerUrlFromReport;
-      if (!runnerUrl) {
-        const key = await getMigrationKey(id);
-        runnerUrl = key
-          ? `${previewHost}${RUNNER_PATH}?key=${encodeURIComponent(key)}`
-          : null;
-      }
-      if (!runnerUrl) {
-        await sendStatus(id, {
-          status: "schema-touched-no-runner",
-          migration: "manual-required",
-          migrationFiles: parsed.migrationFiles,
-          ...common,
-        });
-        return { status: "schema-touched-no-runner" };
-      }
+    if (runnerUrl) {
       schemaPending = true;
       await sendStatus(id, {
         status: "schema-pending",
-        migration: "manual-required",
         migrationFiles: parsed.migrationFiles,
         runnerUrl,
         schemaPending: true,
         applied: null,
+        skipped: null,
+        ...common,
+      });
+    } else {
+      await sendStatus(id, {
+        status: "schema-manual-required",
+        note: "Schema changed but no runner URL in the report. Apply migrations manually.",
+        migrationFiles: parsed.migrationFiles,
         ...common,
       });
     }
@@ -173,8 +154,18 @@ export async function runPostCompletionPipeline(projectId, assistantResponse, pr
     .filter(Boolean))];
   if (urls.length && !(await hasPreviewPermission(previewHost))) {
     const error = "Preview host access is not granted to this extension; endpoint checks cannot run.";
-    await sendStatus(id, { status: "error", error, ...common });
-    return { status: "error", error };
+    const status = schemaPending ? "schema-pending" : parsed.schemaTouched ? "schema-manual-required" : "error";
+    await sendStatus(id, {
+      status,
+      error,
+      ...(schemaPending ? { runnerUrl, schemaPending: true, applied: null, skipped: null } : {}),
+      ...(!runnerUrl && parsed.schemaTouched ? {
+        note: "Schema changed but no runner URL in the report. Apply migrations manually.",
+        migrationFiles: parsed.migrationFiles,
+      } : {}),
+      ...common,
+    });
+    return { status, error };
   }
 
   const perUrlStatuses = [];
@@ -184,12 +175,16 @@ export async function runPostCompletionPipeline(projectId, assistantResponse, pr
   if (perUrlStatuses.length && perUrlStatuses.every((item) => item.state === "live")) finalStatus = "live";
   else if (perUrlStatuses.some((item) => item.state === "runtime-error")) finalStatus = "runtime-error";
   else if (perUrlStatuses.some((item) => item.state === "deploy-failed")) finalStatus = "deploy-failed";
-  if (manualSchemaApplication) finalStatus = "schema-manual-required";
+  if (schemaPending) finalStatus = "schema-pending";
+  else if (parsed.schemaTouched) finalStatus = "schema-manual-required";
 
   await sendStatus(id, {
     status: finalStatus,
     urls: perUrlStatuses,
-    ...(manualSchemaApplication ? { migration: "manual-required", migrationFiles: parsed.migrationFiles } : {}),
+    ...(parsed.schemaTouched && !runnerUrl ? {
+      note: "Schema changed but no runner URL in the report. Apply migrations manually.",
+      migrationFiles: parsed.migrationFiles,
+    } : {}),
     ...(runnerUrl ? { runnerUrl, schemaPending } : {}),
     ...common,
   });
