@@ -12,8 +12,8 @@ import { clearMigrationKey, getMigrationKey, setMigrationKey, validateKeyInput }
   const card = document.createElement("div");
   card.className = "integration-card migration-runner-card";
   card.id = "migrationRunnerCard";
-  card.dataset.state = "loading";
-  card.innerHTML = '<span class="integration-icon" aria-hidden="true">DB</span><div class="integration-copy"><div class="integration-title"><span class="integration-dot"></span><strong>Migration Runner</strong></div><small id="migrationRunnerStatus">Checking project backend...</small><div id="migrationRunnerDetails"></div><div class="migration-runner-actions" id="migrationRunnerActions"></div></div>';
+  card.dataset.state = "NOT_CONFIGURED";
+  card.innerHTML = '<span class="integration-icon" aria-hidden="true">DB</span><div class="integration-copy"><div class="integration-title"><span class="integration-dot"></span><strong>Migration Runner</strong></div><small id="migrationRunnerStatus"></small><div id="migrationRunnerDetails"></div><div class="migration-runner-actions" id="migrationRunnerActions"></div></div>';
   supabaseCard.after(card);
 
   const statusEl = card.querySelector("#migrationRunnerStatus");
@@ -23,17 +23,25 @@ import { clearMigrationKey, getMigrationKey, setMigrationKey, validateKeyInput }
   const repositoryValue = document.getElementById("repositoryValue");
   const sendButton = document.getElementById("sendCommandButton");
   const RUNNER_PATH = "/api/public/ops/run-migrations";
-  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
   let currentProject = "";
-  let typedKey = "";
+  let latestIntegration = null;
   let savedKey = "";
-  let classification = "";
-  let prompt = "";
-  let state = "CLASSIFYING";
+  let typedKey = "";
+  let pendingKey = "";
+  let pendingPrompt = "";
+  let currentState = "NOT_CONFIGURED";
   let existingKeyMode = false;
-  let busy = false;
-  let preparingPrompt = false;
-  let generation = 0;
+  let failureText = "";
+  let operation = 0;
+  let initialization = 0;
+
+  function stateStorageKey(id = currentProject) {
+    return `migrationCardState:${id}`;
+  }
+
+  function errorStorageKey(id = currentProject) {
+    return `migrationCardError:${id}`;
+  }
 
   function projectId() {
     return String(projectValue?.textContent || "").trim().replace(/^—$/, "");
@@ -52,40 +60,146 @@ import { clearMigrationKey, getMigrationKey, setMigrationKey, validateKeyInput }
 
   function addAction(label, handler) {
     const button = node("button", label, { type: "button" });
-    button.disabled = busy;
-    button.addEventListener("click", handler);
+    button.addEventListener("click", async (event) => {
+      try {
+        await handler(event);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        try {
+          await transition("FAILED", message);
+        } catch (storageError) {
+          currentState = "FAILED";
+          failureText = `${message} (Could not save card state: ${storageError instanceof Error ? storageError.message : String(storageError)})`;
+          render();
+        }
+      }
+    });
     actions.append(button);
     return button;
   }
 
-  function addInput(labelText, value, onInput) {
-    const label = node("label");
-    label.className = "migration-runner-field";
-    const name = node("span", labelText);
+  function showInlineError(message) {
+    const slot = details.querySelector(".migration-runner-error");
+    if (!slot) return;
+    slot.textContent = message;
+    slot.hidden = false;
+  }
+
+  function addInput(id, placeholder, value) {
     const input = node("input", null, {
+      id,
       type: "text",
       autocomplete: "off",
       spellcheck: "false",
-      "aria-label": labelText,
+      placeholder,
+      "aria-label": placeholder,
     });
     input.value = value;
-    input.addEventListener("input", () => onInput(input.value));
-    label.append(name, input);
-    details.append(label);
+    input.addEventListener("input", () => {
+      if (id === "migration-runner-key-input") typedKey = input.value;
+      if (id === "migration-runner-existing-key-input") typedKey = input.value;
+      const slot = details.querySelector(".migration-runner-error");
+      if (slot) slot.hidden = true;
+    });
+    details.append(input);
     return input;
   }
 
-  function setState(next, text) {
-    state = next;
-    card.dataset.state = next === "CLASSIFYING" || next === "VERIFYING" ? "loading"
-      : next === "READY" ? "connected"
-        : next === "FAILED" ? "disconnected"
-          : next === "NOT_APPLICABLE" ? "unused" : "disconnected";
-    statusEl.textContent = text;
+  function addErrorSlot() {
+    const slot = node("small");
+    slot.className = "migration-runner-error";
+    slot.setAttribute("role", "alert");
+    slot.hidden = true;
+    details.append(slot);
+  }
+
+  function previewHostFor() {
+    return String(latestIntegration?.previewHost || (currentProject ? `https://${currentProject}.lovableproject.com` : "")).replace(/\/$/, "");
+  }
+
+  function renderNotConfigured() {
+    statusEl.textContent = "Not configured.";
+    details.append(
+      node("small", "If this project uses Lovable Cloud + Drizzle, enter a key below to enable auto-apply for schema changes. If it uses anything else, you can skip this card."),
+    );
+    if (existingKeyMode) {
+      addInput("migration-runner-existing-key-input", "Paste your existing migration runner key", typedKey);
+      addErrorSlot();
+      addAction("Verify & save", onVerifyExisting);
+      return;
+    }
+    addInput("migration-runner-key-input", "Enter your migration runner key", typedKey);
+    addErrorSlot();
+    addAction("Build Lovable prompt", onBuildPrompt);
+    addAction("I already have a key", async () => {
+      existingKeyMode = true;
+      await transition("NOT_CONFIGURED");
+    });
+  }
+
+  function renderBuildPromptReady() {
+    statusEl.textContent = "Setup prompt ready. Paste it into Lovable AI.";
+    const output = node("textarea");
+    output.id = "migration-runner-prompt-output";
+    output.className = "migration-runner-prompt-output";
+    output.readOnly = true;
+    output.value = pendingPrompt;
+    output.setAttribute("aria-label", "Lovable migration runner setup prompt");
+    details.append(output, node("small", "This uses one Lovable credit for initial setup."));
+    addErrorSlot();
+    const copyButton = addAction("Copy prompt", onCopyPrompt);
+    copyButton.id = "migration-runner-copy-button";
+    addAction("Open Lovable & paste", onOpenAndPaste);
+    addAction("Verify", async () => startVerification("new", pendingKey || savedKey));
+    addAction("Back", async () => {
+      typedKey = pendingKey || savedKey || typedKey;
+      pendingPrompt = "";
+      pendingKey = "";
+      existingKeyMode = false;
+      await transition("NOT_CONFIGURED");
+    });
+  }
+
+  function renderReady() {
+    statusEl.textContent = "READY";
+    const runnerUrl = `${previewHostFor()}${RUNNER_PATH}`;
+    details.append(
+      node("small", runnerUrl),
+      node("small", `Key: ${savedKey.slice(0, 8)}…`),
+    );
+    addAction("Verify", async () => startVerification("new", savedKey));
+    addAction("Reset", onReset);
+  }
+
+  function renderFailed() {
+    statusEl.textContent = failureText || "Migration runner verification failed.";
+    statusEl.classList.add("migration-runner-error");
+    addAction("Retry", async () => startVerification("new", savedKey));
+    addAction("Reset", onReset);
+  }
+
+  function render() {
+    statusEl.classList.remove("migration-runner-error");
     details.replaceChildren();
     actions.replaceChildren();
-    renderActions();
+    card.dataset.state = currentState;
+    if (currentState === "NOT_CONFIGURED") renderNotConfigured();
+    else if (currentState === "BUILD_PROMPT_READY") renderBuildPromptReady();
+    else if (currentState === "VERIFYING") statusEl.textContent = "Preparing verification...";
+    else if (currentState === "READY") renderReady();
+    else if (currentState === "FAILED") renderFailed();
     syncDispatchGate();
+  }
+
+  async function transition(next, error = "") {
+    currentState = next;
+    failureText = next === "FAILED" ? String(error || "Migration runner verification failed.") : "";
+    render();
+    const values = {
+      [stateStorageKey()]: next,
+      [errorStorageKey()]: failureText,
+    };
+    await chrome.storage.local.set(values);
   }
 
   function syncDispatchGate() {
@@ -101,312 +215,244 @@ import { clearMigrationKey, getMigrationKey, setMigrationKey, validateKeyInput }
       hint.setAttribute("role", "status");
       sendButton.after(hint);
     }
-    if (!hasRepo) hint.textContent = "Connect GitHub to enable dispatch.";
-    else if (classification === "CLOUD_DRIZZLE" && !savedKey) {
-      hint.textContent = "Migration runner not set up. Schema changes will require manual application until you configure it.";
-    } else hint.textContent = "";
+    hint.textContent = hasRepo ? "" : "Connect GitHub to enable dispatch.";
     hint.hidden = !hint.textContent;
   }
 
-  function renderActions() {
-    actions.replaceChildren();
-    if (state === "SETUP_REQUIRED") {
-      if (existingKeyMode) {
-        addInput("Paste your existing migration runner key.", typedKey, (value) => { typedKey = value; });
-        addAction("Verify & save", () => void saveExistingKey());
-      } else {
-        addInput("Enter your migration runner key.", typedKey, (value) => { typedKey = value; });
-        addAction("Build Lovable prompt", buildPrompt);
-        addAction("I already have a key", () => {
-          existingKeyMode = true;
-          setState("SETUP_REQUIRED", "Paste your existing migration runner key.");
-        });
-      }
-    } else if (state === "BUILD_PROMPT_READY") {
-      const output = node("pre");
-      output.className = "migration-runner-prompt";
-      output.textContent = prompt;
-      details.append(output, node("small", "This uses one Lovable credit for initial setup."));
-      addAction("Copy prompt", copyPrompt);
-      addAction("Open Lovable & paste", openAndPaste);
-      addAction("Verify", () => void verifySavedKey());
-    } else if (state === "READY") {
-      const pendingUrl = latestRunStatus?.runnerUrl && latestRunStatus.schemaPending
-        ? latestRunStatus.runnerUrl
-        : `${previewHostFor(currentProject)}${RUNNER_PATH}?key=${encodeURIComponent(savedKey)}`;
-      details.append(
-        node("small", `Preview host: ${previewHostFor(currentProject)}`),
-        node("small", pendingUrl),
-        node("small", `Key fingerprint: ${savedKey.slice(0, 8) || "—"}`),
-      );
-      const run = latestRunStatus;
-      if (run?.runnerUrl && run.schemaPending) {
-        addAction("Open migration runner", () => chrome.tabs.create({ url: run.runnerUrl, active: true }));
-      }
-      addAction("Verify", () => void verifySavedKey());
-      addAction("Reset", () => void resetKey());
-    } else if (state === "VERIFYING") {
-      addAction("Cancel", () => { generation += 1; busy = false; void refresh(); });
-    } else if (state === "FAILED") {
-      addAction("Retry", () => void verifySavedKey());
-      addAction("Reset", () => void resetKey());
-    } else if (state === "NOT_APPLICABLE") {
-      details.append(node("small", `Schema changes require manual application.`));
-    }
-  }
-
-  let latestRunStatus = null;
-
-  function previewHostFor(id) {
-    return String(latestIntegration?.previewHost || `https://${id}.lovableproject.com`).replace(/\/$/, "");
-  }
-
-  let latestIntegration = null;
-
-  function failureMessage(error) {
-    const text = String(error || "");
-    if (text.includes("Route did not deploy within 3 minutes.")) return text;
-    if (text.includes("Preview host not responding (HTML 404).")) return text;
-    if (text.includes("Runner accepted a request without a key.")) return text;
-    if (text.includes("Key rejected by runner (401).")) return "Key rejected by runner (401). The committed runner may use a different key. Rebuild and re-paste.";
-    if (text.includes("Lovable AI did not respond.")) return text;
-    if (text.includes("Runner returned an error.")) return text;
-    return text || "Migration runner operation failed.";
-  }
-
-  function showFailure(error, detailsText = "") {
-    busy = false;
-    setState("FAILED", failureMessage(error));
-    if (detailsText) details.append(node("small", detailsText));
-  }
-
-  async function buildPrompt() {
+  async function onBuildPrompt() {
     const validation = validateKeyInput(typedKey);
     if (!validation.ok) {
-      setState("SETUP_REQUIRED", "Enter your migration runner key.");
-      details.append(node("small", validation.error));
+      showInlineError(validation.error);
       return;
     }
     try {
-      preparingPrompt = true;
-      savedKey = await setMigrationKey(currentProject, validation.value);
-      prompt = buildBootstrapPrompt({ key: savedKey, previewHost: previewHostFor(currentProject) });
+      pendingKey = await setMigrationKey(currentProject, validation.value);
+      savedKey = pendingKey;
+      pendingPrompt = buildBootstrapPrompt({ key: pendingKey, previewHost: previewHostFor() });
       existingKeyMode = false;
-      setState("BUILD_PROMPT_READY", "Bootstrap prompt ready.");
+      await transition("BUILD_PROMPT_READY");
     } catch (error) {
-      showFailure(error instanceof Error ? error.message : String(error));
-    } finally {
-      preparingPrompt = false;
+      await transition("FAILED", error instanceof Error ? error.message : String(error));
     }
   }
 
-  async function copyPrompt() {
+  async function onVerifyExisting() {
+    const input = details.querySelector("#migration-runner-existing-key-input");
+    const validation = validateKeyInput(input?.value ?? typedKey);
+    if (!validation.ok) {
+      showInlineError(validation.error);
+      return;
+    }
     try {
-      await navigator.clipboard.writeText(prompt);
-      statusEl.textContent = "Prompt copied.";
+      typedKey = validation.value;
+      savedKey = await setMigrationKey(currentProject, validation.value);
+      await startVerification("existing", savedKey);
     } catch (error) {
-      showFailure("Could not copy the bootstrap prompt.", String(error));
+      await transition("FAILED", error instanceof Error ? error.message : String(error));
     }
   }
 
-  async function openAndPaste() {
+  async function onCopyPrompt(event) {
+    const button = event.currentTarget;
     try {
-      const tabs = await chrome.tabs.query({ url: ["https://lovable.dev/projects/*"] });
-      const tab = tabs.find((item) => item.url?.includes(currentProject));
-      if (!tab?.id) throw new Error("Open the Lovable editor for this project, then try again.");
+      await navigator.clipboard.writeText(pendingPrompt);
+      button.textContent = "Copied";
+      setTimeout(() => {
+        if (button.isConnected) button.textContent = "Copy prompt";
+      }, 2000);
+    } catch (error) {
+      showInlineError(error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  async function onOpenAndPaste() {
+    try {
+      const tabs = await chrome.tabs.query({});
+      const tab = tabs.find((item) => item.url?.includes("lovable.dev"));
+      if (!tab?.id) throw new Error("Open the Lovable editor, then try again.");
       await chrome.tabs.update(tab.id, { active: true });
       let response;
       try {
-        response = await chrome.tabs.sendMessage(tab.id, { type: "LOVABLE_PASTE_BOOTSTRAP", prompt });
+        response = await chrome.tabs.sendMessage(tab.id, { type: "LOVABLE_PASTE_BOOTSTRAP", prompt: pendingPrompt });
       } catch {
         await chrome.scripting.executeScript({
           target: { tabId: tab.id },
           files: ["src/content/lovable-composer-core.js", "src/content/lovable-composer.js"],
         });
-        response = await chrome.tabs.sendMessage(tab.id, { type: "LOVABLE_PASTE_BOOTSTRAP", prompt });
+        response = await chrome.tabs.sendMessage(tab.id, { type: "LOVABLE_PASTE_BOOTSTRAP", prompt: pendingPrompt });
       }
       if (!response?.ok) throw new Error(response?.error || "Could not paste the bootstrap prompt.");
       statusEl.textContent = "Pasted. Send it and wait for Lovable to finish.";
     } catch (error) {
-      showFailure(error instanceof Error ? error.message : String(error));
+      showInlineError(error instanceof Error ? error.message : String(error));
     }
   }
 
-  async function pollForDeploy(url, run) {
+  async function verifyRunner({ previewHost, key, onProgress }) {
+    if (!previewHost) {
+      return { ok: false, error: "Preview host unknown. Open the Lovable editor first." };
+    }
+    const url = `${previewHost.replace(/\/$/, "")}${RUNNER_PATH}?key=${encodeURIComponent(key)}`;
     const started = Date.now();
-    const deadline = started + 180000;
-    while (Date.now() < deadline && run === generation) {
-      const elapsed = Math.floor((Date.now() - started) / 1000);
-      statusEl.textContent = `Waiting for deploy (${elapsed}s)...`;
+    while (Date.now() - started < 180000) {
+      onProgress(`Waiting for deploy (${Math.floor((Date.now() - started) / 1000)}s)...`);
+      const controller = new AbortController();
+      const requestTimeout = setTimeout(() => controller.abort(), Math.min(15000, 180000 - (Date.now() - started)));
       try {
-        const response = await fetch(url, { method: "GET", cache: "no-store", credentials: "omit" });
-        if (response.status === 401) return { ok: true };
-        if (response.status === 500) {
-          return {
-            ok: false,
-            error: "Runner returned an error. See details below.",
-            detail: (await response.text()).slice(0, 500),
-          };
-        }
+        const response = await fetch(url, { method: "GET", cache: "no-store", signal: controller.signal });
         if (response.status === 200) {
-          return { ok: false, error: "Runner accepted a request without a key. Verification stopped to avoid applying migrations." };
+          const body = await response.json().catch(() => null);
+          if (body && body.ok === true) return { ok: true, url };
+          return { ok: false, error: body?.error || "Runner returned ok:false." };
         }
-        if (response.status === 404 && (response.headers.get("content-type") || "").toLowerCase().includes("text/html")) {
-          return { ok: false, error: "Preview host not responding (HTML 404). Is the project running?" };
+        if (response.status === 401) {
+          return { ok: false, error: "Key rejected (401). The committed runner may use a different key. Rebuild the prompt and re-paste into Lovable." };
         }
-      } catch {}
-      await sleep(Math.min(15000, Math.max(0, deadline - Date.now())));
-    }
-    if (run !== generation) return { ok: false, error: "Verification cancelled." };
-    return { ok: false, error: "Route did not deploy within 3 minutes. Check the preview host is live." };
-  }
-
-  async function verifyRunner({ previewHost, key, run }) {
-    void key;
-    const url = `${previewHost}${RUNNER_PATH}`;
-    const deploy = await pollForDeploy(url, run);
-    if (!deploy.ok) return deploy;
-    if (run !== generation) return { ok: false, error: "Verification cancelled." };
-    statusEl.textContent = "Route live. Key will be checked when you open the runner.";
-    return { ok: true };
-  }
-
-  async function verifyAndSave(key, rejectMessage) {
-    if (busy) return;
-    busy = true;
-    const run = ++generation;
-    setState("VERIFYING", "Waiting for deploy (0s)...");
-    try {
-      const result = await verifyRunner({ previewHost: previewHostFor(currentProject), key, run });
-      if (run !== generation) return;
-      busy = false;
-      if (!result.ok) {
-        showFailure(result.error === "Key rejected by runner (401)." && rejectMessage
-          ? "Key rejected. Check and retry."
-          : result.error, result.detail || "");
-        return;
+        if (response.status === 500) {
+          const body = await response.json().catch(() => null);
+          return { ok: false, error: body?.error || "Runner returned 500." };
+        }
+        if (response.status === 404) {
+          const contentType = response.headers.get("content-type") || "";
+          if (contentType.includes("text/html")) {
+            return { ok: false, error: "Preview host not responding (HTML 404). Is the project running?" };
+          }
+        }
+      } catch {
+        // Network errors are expected while Lovable deploys the route.
+      } finally {
+        clearTimeout(requestTimeout);
       }
-      savedKey = key;
-      await setMigrationKey(currentProject, key);
-      const storeKey = `projectSetup:${currentProject}`;
-      const previous = (await chrome.storage.local.get(storeKey))[storeKey] || {};
-      await chrome.storage.local.set({
-        [storeKey]: { ...previous, setupComplete: true, setupAt: new Date().toISOString(), error: null },
+      await new Promise((resolve) => setTimeout(resolve, Math.min(15000, Math.max(0, 180000 - (Date.now() - started)))));
+    }
+    return { ok: false, error: "Route did not deploy within 3 minutes." };
+  }
+
+  async function startVerification(mode, key) {
+    if (!key) {
+      await transition("NOT_CONFIGURED");
+      return;
+    }
+    if (mode !== "existing" && mode !== "new") throw new Error("Unknown migration runner verification mode.");
+    const run = ++operation;
+    try {
+      await transition("VERIFYING");
+      const result = await verifyRunner({
+        previewHost: previewHostFor(),
+        key,
+        onProgress: (message) => {
+          if (run === operation) statusEl.textContent = message;
+        },
       });
-      setState("READY", "Runner route deployed; key stored for your next click.");
+      if (run !== operation) return;
+      if (result.ok) {
+        savedKey = key;
+        const setupKey = `projectSetup:${currentProject}`;
+        const previous = (await chrome.storage.local.get(setupKey))[setupKey] || {};
+        await chrome.storage.local.set({
+          [setupKey]: { ...previous, setupComplete: true, setupAt: new Date().toISOString(), error: null },
+        });
+        await transition("READY");
+      } else {
+        await transition("FAILED", result.error);
+      }
     } catch (error) {
-      showFailure(error instanceof Error ? error.message : String(error));
-    } finally {
-      busy = false;
+      if (run === operation) {
+        await transition("FAILED", error instanceof Error ? error.message : String(error));
+      }
     }
   }
 
-  async function verifySavedKey() {
-    if (!savedKey) return setState("SETUP_REQUIRED", "Enter your migration runner key.");
-    return verifyAndSave(savedKey, false);
-  }
-
-  async function resetKey() {
+  async function onReset() {
+    ++operation;
     try {
       await clearMigrationKey(currentProject);
       await chrome.storage.local.remove(`projectSetup:${currentProject}`);
-      const stored = await chrome.storage.local.get("projectRunStatuses");
-      const runs = { ...(stored.projectRunStatuses || {}) };
-      const run = { ...(runs[currentProject] || {}) };
-      delete run.runnerUrl;
-      run.schemaPending = false;
-      runs[currentProject] = run;
-      await chrome.storage.local.set({ projectRunStatuses: runs });
       savedKey = "";
       typedKey = "";
-      prompt = "";
+      pendingKey = "";
+      pendingPrompt = "";
       existingKeyMode = false;
-      await refresh();
+      await transition("NOT_CONFIGURED");
     } catch (error) {
-      showFailure(error instanceof Error ? error.message : String(error));
+      await transition("FAILED", error instanceof Error ? error.message : String(error));
     }
   }
 
-  async function saveExistingKey() {
-    try {
-      const input = details.querySelector("input");
-      const value = input ? input.value : typedKey;
-      const validation = validateKeyInput(value);
-      if (!validation.ok) {
-        details.append(node("small", validation.error));
-        return;
-      }
-      savedKey = await setMigrationKey(currentProject, validation.value);
-      await verifyAndSave(savedKey, true);
-    } catch (error) {
-      showFailure(error instanceof Error ? error.message : String(error));
-    }
-  }
-
-  async function refresh() {
+  async function initialize() {
+    const run = ++initialization;
     try {
       const id = projectId();
-      if (id !== currentProject) {
-        typedKey = "";
-        existingKeyMode = false;
-        prompt = "";
-      }
-      currentProject = id;
-      const token = ++generation;
       if (!id) {
-        classification = "";
-        savedKey = "";
-        setState("CLASSIFYING", "Checking project backend...");
+        currentProject = "";
+        await transition("NOT_CONFIGURED");
         return;
       }
-      setState("CLASSIFYING", "Checking project backend...");
-      const stored = await chrome.storage.local.get(["projectRunStatuses", "projectIntegrations"]);
-      if (token !== generation || id !== projectId()) return;
-      latestRunStatus = stored.projectRunStatuses?.[id] || null;
+      if (id !== currentProject) {
+        ++operation;
+        typedKey = "";
+        pendingKey = "";
+        pendingPrompt = "";
+        existingKeyMode = false;
+      }
+      currentProject = id;
+      const stored = await chrome.storage.local.get([
+        "projectIntegrations",
+        `projectSetup:${id}`,
+        stateStorageKey(id),
+        errorStorageKey(id),
+      ]);
+      if (run !== initialization || id !== projectId()) return;
       latestIntegration = stored.projectIntegrations?.[id] || {};
-      classification = String(latestRunStatus?.backendClassification || "").toUpperCase();
       savedKey = await getMigrationKey(id);
-      if (token !== generation || id !== projectId()) return;
+      if (run !== initialization || id !== projectId()) return;
+      typedKey = savedKey;
+      const setupComplete = Boolean(stored[`projectSetup:${id}`]?.setupComplete);
+      const savedState = stored[stateStorageKey(id)];
+      failureText = String(stored[errorStorageKey(id)] || "");
 
-      if (!classification) {
-        setState("CLASSIFYING", "Checking project backend...");
-      } else if (classification !== "CLOUD_DRIZZLE") {
-        setState("NOT_APPLICABLE", `Migration runner not applicable — this project uses ${classification}.`);
-      } else if (savedKey && latestRunStatus?.runnerUrl && latestRunStatus.schemaPending) {
-        setState("READY", "Schema changes are waiting for your migration runner click.");
-      } else if (savedKey && (await chrome.storage.local.get(`projectSetup:${id}`))[`projectSetup:${id}`]?.setupComplete) {
-        setState("READY", "Migration runner ready.");
-      } else if (savedKey && existingKeyMode) {
-        setState("SETUP_REQUIRED", "Paste your existing migration runner key.");
-        addInput("Paste your existing migration runner key.", savedKey, (value) => { typedKey = value; });
-        addAction("Verify & save", () => void saveExistingKey());
+      if (!savedKey) {
+        pendingKey = "";
+        pendingPrompt = "";
+        await transition("NOT_CONFIGURED");
+      } else if (savedState === "NOT_CONFIGURED") {
+        await transition("NOT_CONFIGURED");
+      } else if (savedState === "BUILD_PROMPT_READY") {
+        pendingKey = savedKey;
+        pendingPrompt = buildBootstrapPrompt({ key: pendingKey, previewHost: previewHostFor() });
+        await transition("BUILD_PROMPT_READY");
+      } else if (savedState === "VERIFYING") {
+        await startVerification("new", savedKey);
+      } else if (savedState === "FAILED") {
+        await transition("FAILED", failureText);
+      } else if (savedState === "READY" && setupComplete) {
+        await transition("READY");
+      } else if (setupComplete) {
+        await transition("READY");
       } else {
-        setState("SETUP_REQUIRED", "Enter your migration runner key.");
+        pendingKey = savedKey;
+        pendingPrompt = buildBootstrapPrompt({ key: pendingKey, previewHost: previewHostFor() });
+        await transition("BUILD_PROMPT_READY");
       }
     } catch (error) {
-      showFailure(error instanceof Error ? error.message : String(error));
+      await transition("FAILED", error instanceof Error ? error.message : String(error));
     }
   }
 
-  projectValue && new MutationObserver(() => void refresh()).observe(projectValue, { childList: true, characterData: true, subtree: true });
+  projectValue && new MutationObserver(() => void initialize()).observe(projectValue, { childList: true, characterData: true, subtree: true });
   repositoryValue && new MutationObserver(syncDispatchGate).observe(repositoryValue, { childList: true, characterData: true, subtree: true });
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== "local") return;
-    if (
-      changes.projectRunStatuses ||
-      changes.projectIntegrations ||
-      (!busy && !preparingPrompt && changes.projectMigrationKeys) ||
-      (!busy && changes[`projectSetup:${currentProject}`])
-    ) {
-      void refresh();
-    }
+    if (changes.projectIntegrations) void initialize();
     if (changes.config) {
       window.__lovarpmConfig = changes.config.newValue || {};
       syncDispatchGate();
     }
   });
-  void chrome.storage.local.get("config").then((stored) => {
+  void chrome.storage.local.get("config").then(async (stored) => {
     window.__lovarpmConfig = stored.config || {};
-    return refresh();
+    await initialize();
+  }).catch(async (error) => {
+    await transition("FAILED", error instanceof Error ? error.message : String(error));
   });
 })();

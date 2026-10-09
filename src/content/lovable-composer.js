@@ -186,6 +186,7 @@
       'textarea[placeholder*="Ask" i]',
       'textarea[role="textbox"]',
       'textarea[data-testid*="prompt" i]',
+      '[contenteditable="true"][placeholder*="Ask Lovable" i]',
       '[contenteditable="true"][aria-label*="Ask Lovable" i]',
       '[contenteditable="true"][role="textbox"]',
       '[contenteditable="true"][data-testid*="prompt" i]',

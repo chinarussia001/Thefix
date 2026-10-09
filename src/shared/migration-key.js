@@ -28,7 +28,7 @@ export async function clearMigrationKey(projectId) {
 }
 
 export function validateKeyInput(raw) {
-  if (typeof raw !== "string" || !raw.trim()) {
+  if (typeof raw !== "string" || raw.length === 0) {
     return { ok: false, error: "Key cannot be empty." };
   }
   return { ok: true, value: raw };
