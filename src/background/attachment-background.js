@@ -134,7 +134,7 @@ async function submit(message, sender) {
     repository,
     repositoryDetectionSource: String(message.repositoryDetectionSource || "attachment-flow"),
     lovableProjectId: projectId,
-    platform: String(message.url || sender?.tab?.url || "").startsWith("https://app.base44.com/") ? "base44" : "lovable",
+    platform: "lovable",
     skills: await skills(projectId),
   };
 

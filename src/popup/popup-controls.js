@@ -170,7 +170,7 @@
     const repository = String(globalThis.workspace?.repository || (typeof workspace !== "undefined" ? workspace?.repository : "") || "");
     const title = String(globalThis.workspace?.sourceTitle || (typeof workspace !== "undefined" ? workspace?.sourceTitle : "") || "");
     if (!projectId) {
-      if (typeof showFeedback === "function") showFeedback(`Open a ${globalThis.workspace?.platform === "base44" ? "Base44" : "Lovable"} project before enhancing the prompt.`);
+      if (typeof showFeedback === "function") showFeedback("Open a Lovable project before enhancing the prompt.");
       return;
     }
 
@@ -427,9 +427,8 @@
     const input = modal.querySelector("textarea"), submit = modal.querySelector(".button-primary"), feedback = modal.querySelector(".lb-special-feedback");
     let mode = "create-project";
     const openLovableDashboard = async () => {
-      const base44 = globalThis.workspace?.platform === "base44" || (typeof workspace !== "undefined" && workspace?.platform === "base44");
-      const pattern = base44 ? "https://app.base44.com/*" : "https://lovable.dev/*";
-      const dashboard = base44 ? "https://app.base44.com/" : "https://lovable.dev/dashboard";
+      const pattern = "https://lovable.dev/*";
+      const dashboard = "https://lovable.dev/dashboard";
       const tabs = await chrome.tabs.query({ url: [pattern] });
       const tab = tabs.find((item) => item.active) || tabs[0];
       if (tab?.id) await chrome.tabs.update(tab.id, { url: dashboard, active: true });
@@ -458,8 +457,8 @@
           setTimeout(close, 900);
           return;
         }
-        const platformName = payload.platform === "base44" ? "Base44" : "Lovable";
-        const tabs = await chrome.tabs.query({ url: [payload.platform === "base44" ? "https://app.base44.com/*" : "https://lovable.dev/*"] });
+        const platformName = "Lovable";
+        const tabs = await chrome.tabs.query({ url: ["https://lovable.dev/*"] });
         const tab = tabs.find((item) => payload.lovableProjectId !== "AUTO_NOT_DETECTED" && item.url?.includes(payload.lovableProjectId)) || tabs.find((item) => item.active) || null;
         if (!tab?.id) throw new Error(`Open the ${platformName} dashboard before sending the prompt.`);
         await chrome.tabs.update(tab.id, { active: true });

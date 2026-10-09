@@ -47,7 +47,7 @@
   function renderControls() {
     if (!shadow) return;
     const active = core.active(), mode = shadow.querySelector(".lb-mode"), boostButton = shadow.querySelector(".lb-boost");
-    const platformName = core.state.platform === "base44" ? "Base44" : "Lovable";
+    const platformName = "Lovable";
     mode.dataset.on = String(active); mode.querySelector(".lb-label").textContent = active ? "LovaRPM" : platformName;
     mode.title = active ? "LovaRPM mode is enabled. License and ChatGPT connection are checked when sending." : `Direct ${platformName} mode — your requests will be sent directly to ${platformName}.`;
     controls.dataset.active = String(active);
@@ -184,6 +184,7 @@
     const selectors = [
       'textarea[placeholder*="Ask Lovable" i]',
       'textarea[placeholder*="Ask" i]',
+      'textarea[role="textbox"]',
       'textarea[data-testid*="prompt" i]',
       '[contenteditable="true"][aria-label*="Ask Lovable" i]',
       '[contenteditable="true"][role="textbox"]',
@@ -236,75 +237,16 @@
     element.dispatchEvent(new Event("change", { bubbles: true, composed: true }));
   }
 
-  function findBootstrapSendButton(composer) {
-    const form = composer.closest("form");
-    const panel = composer.closest('[data-testid*="chat" i],[data-testid*="conversation" i],[role="log"]');
-    const root = form || panel || composer.parentElement || document;
-    const buttons = [...root.querySelectorAll("button,[role='button']")].filter((button) =>
-      visibleBootstrapElement(button) && !button.disabled && button.getAttribute("aria-disabled") !== "true",
-    );
-    const labeled = buttons.find((button) => /send/i.test(`${button.getAttribute("aria-label") || ""} ${button.getAttribute("title") || ""}`));
-    if (labeled) return labeled;
-    return buttons
-      .filter((button) => {
-        const label = `${button.getAttribute("aria-label") || ""} ${button.getAttribute("title") || ""} ${button.textContent || ""}`.toLowerCase();
-        if (/attach|upload|microphone|voice|image|camera|mode|settings/.test(label)) return false;
-        if (!button.querySelector("svg")) return false;
-        const rect = button.getBoundingClientRect();
-        const composerRect = composer.getBoundingClientRect();
-        return rect.width <= 72 && rect.height <= 72 && rect.right >= composerRect.right - 100 && Math.abs(rect.bottom - composerRect.bottom) < 110;
-      })
-      .sort((left, right) => right.getBoundingClientRect().right - left.getBoundingClientRect().right)[0] || null;
-  }
-
-  function bootstrapAssistantMessages(root) {
-    const selectors = [
-      '[data-message-author-role="assistant"]',
-      '[data-testid*="assistant-message" i]',
-      '[data-testid*="assistantMessage"]',
-      '[data-testid*="message-assistant" i]',
-    ];
-    const messages = new Set();
-    for (const selector of selectors) {
-      for (const element of root.querySelectorAll(selector)) messages.add(element);
-    }
-    return messages;
-  }
-
-  function bootstrapStreaming(root) {
-    return [...root.querySelectorAll('button[aria-label*="stop" i],button[title*="stop" i],[data-testid*="stop" i],[aria-label*="generating" i]')]
-      .some((element) => visibleBootstrapElement(element));
-  }
-
-  async function waitForBootstrapResponse(root, baseline, timeoutMs) {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
-      const newAssistantMessage = [...bootstrapAssistantMessages(root)].some((element) => !baseline.has(element));
-      if (newAssistantMessage && !bootstrapStreaming(root)) return;
-      await new Promise((resolve) => setTimeout(resolve, 500));
-    }
-    throw new Error("Lovable AI did not respond within 3 minutes");
-  }
-
-  async function runExecSqlBootstrap(sql, timeoutMs = 180000) {
-    if (location.hostname !== "lovable.dev") throw new Error("Open the Lovable editor tab to bootstrap exec_sql.");
-    if (!core.state.projectId) await core.loadMode();
+  async function pasteBootstrapIntoComposer(prompt) {
+    if (typeof prompt !== "string") throw new Error("Bootstrap prompt is missing.");
     const composer = findBootstrapComposer();
-    if (!composer) throw new Error("Lovable chat composer not found.");
-    const panel = composer.closest('[data-testid*="chat" i],[data-testid*="conversation" i],[role="log"]') || document.body;
-    const baseline = bootstrapAssistantMessages(panel);
-    setBootstrapComposerText(composer, String(sql || ""));
-
-    const sendButton = findBootstrapSendButton(composer);
-    if (!sendButton) throw new Error("Lovable Send button not found or disabled.");
-    if (sendButton.disabled || sendButton.getAttribute("aria-disabled") === "true") throw new Error("Lovable Send button is disabled.");
-    sendButton.click();
-    await waitForBootstrapResponse(panel, baseline, timeoutMs);
+    if (!composer) throw new Error("Composer element not found in Lovable editor");
+    setBootstrapComposerText(composer, prompt);
   }
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-    if (message?.type === "LOVABLE_BOOTSTRAP_EXEC_SQL") {
-      runExecSqlBootstrap(message.sql, Number(message.timeoutMs) || 180000)
+    if (message?.type === "LOVABLE_PASTE_BOOTSTRAP") {
+      pasteBootstrapIntoComposer(message.prompt)
         .then(() => sendResponse({ ok: true }))
         .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
       return true;
@@ -318,7 +260,7 @@
       return false;
     }
     if (!projectId || projectId !== core.state.projectId) {
-      sendResponse({ ok: false, error: `The open ${core.state.platform === "base44" ? "Base44" : "Lovable"} project does not match the extension project.` });
+      sendResponse({ ok: false, error: "The open Lovable project does not match the extension project." });
       return false;
     }
     if (enhancing || busy) {

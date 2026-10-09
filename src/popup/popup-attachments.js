@@ -66,7 +66,7 @@
     if (sending || !selected.length) return;
     const activeWorkspace = getWorkspace();
     if (!activeWorkspace?.lovableProjectId) {
-      if (typeof showFeedback === "function") showFeedback(`Open the ${activeWorkspace?.platform === "base44" ? "Base44" : "Lovable"} project you want to change.`);
+      if (typeof showFeedback === "function") showFeedback("Open the Lovable project you want to change.");
       return;
     }
     sending = true;
@@ -92,7 +92,7 @@
       if (typeof showFeedback === "function") showFeedback(error instanceof Error ? error.message : String(error));
     } finally {
       sending = false;
-      sendButton.disabled = false;
+      globalThis.__LOVARPM_SYNC_DISPATCH_GATE__?.();
     }
   };
 

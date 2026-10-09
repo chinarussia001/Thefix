@@ -1,8 +1,8 @@
 "use strict";
 
-function activeBuilderName() { return workspace.platform === "base44" ? "Base44" : "Lovable"; }
-function activeBuilderPattern() { return workspace.platform === "base44" ? "https://app.base44.com/apps/*" : "https://lovable.dev/*"; }
-function activeBuilderPrefix() { return workspace.platform === "base44" ? "https://app.base44.com/apps/" : "https://lovable.dev/"; }
+function activeBuilderName() { return "Lovable"; }
+function activeBuilderPattern() { return "https://lovable.dev/*"; }
+function activeBuilderPrefix() { return "https://lovable.dev/"; }
 
 function displayConversationTitle(conversation, title) {
   return !conversation?.lockedUrl && title === "Nova conversa · ChatGPT" ? "New conversation · ChatGPT" : title;
@@ -56,9 +56,15 @@ async function refreshRunStatus() {
     "deploy-failed": { icon: "…", title: "Build not deployed", text: `Endpoint 404 after retries: ${status.urls?.find((item) => item.state === "deploy-failed")?.url || "unknown"}`, loading: false },
     "schema-failed": { icon: "×", title: "Migration failed", text: `Migration failed at ${status.failed_at || "unknown file"}: ${status.error || "unknown error"}`, loading: false },
     "schema-timeout": { icon: "…", title: "Migration timeout", text: status.error || "Migration runner did not deploy within 3 minutes.", loading: false },
+    "schema-pending": { icon: "↻", title: "Schema changes pending", text: "Click the migration runner card to apply the reported migrations.", loading: false },
+    "schema-touched-no-runner": { icon: "!", title: "Migration runner not configured", text: "Schema changes require manual application until the runner is configured.", loading: false },
+    "schema-manual-required": { icon: "!", title: "Manual schema application required", text: "This backend classification does not support runtime migration auto-apply.", loading: false },
   };
 
-  const state = states[status.status] || { icon: "◌", title: "Waiting", text: "The request is being prepared.", loading: false };
+  const schemaPending = status.schemaPending === true && ["done", "live"].includes(status.status);
+  const state = schemaPending
+    ? { icon: "↻", title: "Schema changes pending", text: "Click the migration runner card to apply the reported migrations.", loading: false }
+    : states[status.status] || { icon: "◌", title: "Waiting", text: "The request is being prepared.", loading: false };
   ui.runStatusMain.dataset.status = status.status || "idle";
   ui.runStatusIcon.textContent = state.icon;
   ui.runStatusTitle.textContent = state.title;
@@ -244,7 +250,15 @@ function renderSendButton(sending = false) {
   ui.sendCommand.innerHTML = sending
     ? '<span class="send-mark" aria-hidden="true">◌</span><b>Sending…</b><span class="send-arrow" aria-hidden="true">→</span>'
     : '<span class="send-mark" aria-hidden="true">✦</span><b>Send</b><span class="send-arrow" aria-hidden="true">➜</span>';
+  globalThis.__LOVARPM_SYNC_DISPATCH_GATE__?.();
 }
+
+function syncDispatchGate() {
+  const hasRepository = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(String(ui.repo?.textContent || "").trim());
+  const config = globalThis.__lovarpmConfig || {};
+  ui.sendCommand.disabled = !hasRepository || !config.enabled || config.chatgptEnabled === false || ui.sendCommand.dataset.sending === "true";
+}
+globalThis.__LOVARPM_SYNC_DISPATCH_GATE__ = syncDispatchGate;
 
 async function sendCommand() {
   if (globalThis.__LOVABURST_POPUP_ATTACHMENTS__?.hasFiles?.()) return;
@@ -311,7 +325,6 @@ const HIDE_LOVABLE_BADGE_OBJECTIVE = `Add the following rule to src/index.css to
 }`;
 
 async function hideLovableBadge() {
-  if (workspace.platform === "base44") throw new Error("Removing platform branding is available only for Lovable projects.");
   if (!workspace.lovableProjectId) throw new Error("Open a Lovable project before removing its badge.");
   if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(String(workspace.repository || "").trim())) {
     throw new Error("Connect this project to GitHub before removing its badge.");
@@ -344,7 +357,7 @@ async function downloadCurrentProject() {
   showFeedback("Project download started.");
 }
 
-async function renderConfig(config) { ui.enabled.checked = Boolean(config.enabled); ui.sendCommand.disabled = !config.enabled || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(String(workspace.repository || "").trim()) || ui.sendCommand.dataset.sending === "true"; }
+async function renderConfig(config) { globalThis.__lovarpmConfig = config; ui.enabled.checked = Boolean(config.enabled); syncDispatchGate(); }
 ui.enabled.addEventListener("change", async () => { const config = await getConfig(); await renderConfig(await setConfig({ ...config, enabled: ui.enabled.checked })); });
 ui.refreshRepo.addEventListener("click", (event) => { event.preventDefault(); event.stopImmediatePropagation(); void reloadLovableAndExtensionUi(); }, true);
 ui.useOpen.addEventListener("click", async () => { ui.useOpen.disabled = true; ui.help.textContent = "Choose the conversation to reserve for this project."; try { const changed = await useOpenConversation(); if (changed) await refreshChat(); } catch (error) { ui.help.textContent = error?.message || String(error); } finally { ui.useOpen.disabled = false; } });

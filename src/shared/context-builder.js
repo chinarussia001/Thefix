@@ -1,4 +1,5 @@
 import { buildWrapper } from "./prm-wrapper.js";
+import { getMigrationKey } from "./migration-key.js";
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const CACHE_PREFIX = "context:";
@@ -40,10 +41,14 @@ async function collectProjectContext(projectId) {
   const repository = repositoryParts(binding.repository || chat.repository || pending.repository || remembered.repository);
   const integration = stored.projectIntegrations?.[projectId] || {};
   const supabaseRef = String(integration.supabase?.projectRef || "").trim();
-  const tabs = await chrome.tabs.query({ url: ["https://lovable.dev/projects/*", "https://app.base44.com/apps/*"] });
+  const tabs = await chrome.tabs.query({ url: ["https://lovable.dev/projects/*"] });
   const editor = tabs.find((tab) => tab.url?.includes(projectId));
   const editorUrl = String(editor?.url || chat.sourceUrl || pending.url || remembered.sourceUrl || "").trim();
   const previewHost = String(integration.previewHost || `https://${projectId}.lovableproject.com`).trim();
+  const key = await getMigrationKey(projectId);
+  const runnerUrl = key && previewHost
+    ? `${previewHost.replace(/\/$/, "")}/api/public/ops/run-migrations?key=${encodeURIComponent(key)}`
+    : null;
 
   return {
     repo: repository,
@@ -52,6 +57,7 @@ async function collectProjectContext(projectId) {
     editorUrl,
     supabaseRef: supabaseRef || null,
     previewHost: previewHost || null,
+    runnerUrl,
   };
 }
 
@@ -60,10 +66,15 @@ export async function gatherProjectContext(projectId) {
   if (!id) throw new Error("Project ID was not provided.");
   const key = cacheKey(id);
   const cached = (await chrome.storage.local.get(key))[key];
-  if (cached?.context && Date.now() - Number(cached.cachedAt || 0) < CACHE_TTL_MS) return cached.context;
+  const migrationKey = await getMigrationKey(id);
+  if (
+    cached?.context &&
+    cached.migrationKey === migrationKey &&
+    Date.now() - Number(cached.cachedAt || 0) < CACHE_TTL_MS
+  ) return cached.context;
 
   const context = await collectProjectContext(id);
-  await chrome.storage.local.set({ [key]: { context, cachedAt: Date.now() } });
+  await chrome.storage.local.set({ [key]: { context, migrationKey, cachedAt: Date.now() } });
   return context;
 }
 

@@ -1,47 +1,3 @@
-const DISCIPLINE = `You are the implementer. Work on the repository above.
-
-Before writing any code, inspect the repo:
-
-1. Read package.json — framework, dependencies, stack.
-2. Read README.md and AGENTS.md if present. AGENTS.md is authoritative — its rules override everything else in this wrapper except safety.
-3. Identify the DB access path. Read whatever module handles server-side DB access. Note the exact import path and exported symbol.
-4. Identify route conventions. List the routes folder. Read one existing route as a reference.
-5. Identify schema and migration conventions. Read the schema file and the most recent migration.
-6. Read one existing frontend route component for styling conventions.
-
-Then implement the user's request, matching the discovered patterns exactly.
-
-Rules that always apply:
-
-• Commit directly to main. No PRs. No approval requests.
-• Never create a new DB client. Use the one you discovered. Never invent env var names. Never reference DATABASE_URL, POSTGRES_URL, or LOVABLE_DB_MIGRATION_URL.
-• Never wrap a client or env read in a module-level throw. It crashes server rendering for the whole app.
-• Never put secrets in client-side code. VITE_* and NEXT_PUBLIC_* env vars land in the browser bundle.
-• Ignore any legacy supabase/functions/ directory — the current build does not deploy from there.
-• Every migration must be idempotent: CREATE TABLE IF NOT EXISTS; CREATE INDEX IF NOT EXISTS; ALTER TABLE ... ADD COLUMN IF NOT EXISTS.
-• For CREATE TYPE: wrap in DO ; For CREATE POLICY: DROP POLICY IF EXISTS x ON y; CREATE POLICY x ... Reason: the runtime migration runner replays pending migrations if the tracking table resets. Non-idempotent DDL will crash it.
-• If the project uses an ORM with migration metadata files (Drizzle: schema.ts + NNNN.sql + meta/_journal.json + meta/NNNN_snapshot.json), all companion files must be in the same commit. Any missing file means the migration will not run.
-• Do NOT use .select(..., { head: true }) for existence checks. PostgREST returns 204 without error for missing tables, silently returning count=0. Use .select("id").limit(1) and inspect the error object.
-• Read 2–3 existing files that do similar things before writing new ones.
-• If you introduce a pattern not already present in the repo, say so explicitly in your final report.
-
-Task:
-Classify as A (frontend), B (backend), C (full-stack), D (schema change), or E (one-off data op). Do the smallest work that satisfies the request. Execute end to end without stopping to check in.
-
-Report:
-• Files added / changed / deleted
-• Commit SHA
-• Task type (A/B/C/D/E)
-• URLs to test — endpoint URLs and/or page URLs on the preview host. If none exist for this task, say "no URLs to test."
-• Whether schema was touched (yes/no). If yes, name the migration files.
-• Anything non-pattern-matched, and why
-
-Finish with exactly one marker on its own line:
-
-[PRM_DONE] — complete and validated
-[PRM_BLOCKED] — something outside the repo prevented completion
-[PRM_ERROR] — implementation failed`;
-
 function uuidV4() {
   if (globalThis.crypto?.randomUUID) return globalThis.crypto.randomUUID();
   const bytes = new Uint8Array(16);
@@ -63,12 +19,126 @@ function contextLines(ctx) {
     ["lovable_editor_url", ctx?.editorUrl],
     ["supabase_project_ref", ctx?.supabaseRef],
     ["preview_host", ctx?.previewHost],
+    ["migration_runner_url", ctx?.runnerUrl],
   ]) {
     const text = String(value || "").trim();
     if (text) lines.push(`${key}: ${text}`);
   }
   return lines;
 }
+
+const DISCIPLINE = `Before any other inspection, classify the project's backend by reading
+the repo. Do not guess. Look for evidence and state one classification:
+
+CLOUD_DRIZZLE
+src/integrations/supabase/ exists, AND drizzle/migrations/ exists.
+
+CLOUD_SUPABASE_MIGRATIONS
+src/integrations/supabase/ exists, AND supabase/migrations/ exists,
+and drizzle/migrations/ does not.
+
+EXTERNAL_SUPABASE
+Supabase is used, but the client is not from
+src/integrations/supabase/. Look for a Supabase URL in .env,
+.env.local, or a config module outside the integrations folder.
+
+MOCK
+No live backend. Persistence via localStorage, IndexedDB,
+in-memory state, JSON fixtures, MSW, or mock-service-worker.
+
+NONE
+Pure frontend. No persistence layer, no DB client, no fixtures.
+
+State your classification on one line, then proceed. If ambiguous,
+prefer MOCK over EXTERNAL_SUPABASE and note the ambiguity in the report.
+
+── DISCIPLINE ──
+
+You are the implementer. Work on the repository above.
+
+Steps 1 and 2 always apply:
+1. Read package.json — framework, dependencies, stack.
+2. Read README.md and AGENTS.md if present. AGENTS.md is authoritative
+and overrides this wrapper except for the safety rules below.
+
+Then branch:
+
+If CLOUD_DRIZZLE or CLOUD_SUPABASE_MIGRATIONS:
+3. Identify the server-side DB access path, exact import path, and symbol.
+4. List src/routes/api/ and read one route as a reference.
+5. Read the most recent migration in the matching migrations folder.
+6. Read one existing frontend route component for styling.
+
+If EXTERNAL_SUPABASE:
+3. Identify the actual external DB client module and import path.
+4. Identify this backend's schema/migration convention.
+5. List the routes folder and read one route as a reference.
+6. Read one existing frontend route component for styling.
+
+If MOCK or NONE:
+3. Identify the existing state layer, or confirm there is none.
+4. List components and read one component for style.
+5. Skip DB and migration steps.
+
+Implement the user's request, matching discovered patterns.
+
+── RULES THAT ALWAYS APPLY ──
+
+• Commit directly to main. No PRs. No approval requests.
+• Never create a new DB client. Never invent environment variable names.
+• Never use prohibited direct-database URL environment variables.
+• Never wrap a client or environment read in a module-level throw.
+• Never put secrets in client-side code.
+• Ignore any legacy supabase/functions/ directory.
+• Read 2–3 similar files before writing new ones.
+• If a new pattern is necessary, say so explicitly in the report.
+
+── MIGRATION RULES (CONDITIONAL) ──
+
+If CLOUD_DRIZZLE:
+• Migrations must be idempotent: CREATE TABLE/INDEX IF NOT EXISTS and
+ALTER TABLE ... ADD COLUMN IF NOT EXISTS.
+• Wrap CREATE TYPE in a DO block. Drop policies before recreating them.
+• Include all Drizzle metadata companions in the same commit.
+• Use .select("id").limit(1) and inspect the error for existence checks.
+• Do not run migrations; the user applies them with the runtime runner.
+
+If CLOUD_SUPABASE_MIGRATIONS:
+• Use supabase/migrations and state that manual application is required.
+• The runtime runner is Drizzle-only.
+
+If EXTERNAL_SUPABASE:
+• Follow the external project's schema convention and state that manual
+application is required.
+
+If MOCK or NONE:
+• Do not add migrations, schema, or a backend. State options if the
+request requires persistence that does not exist.
+
+── TASK ──
+
+Classify as A (frontend), B (backend), C (full-stack), D (schema), or
+E (one-off data operation). Make the smallest complete change.
+Execute end to end without stopping to check in.
+
+── REPORT ──
+
+• Backend classification: <classification>
+• Files added / changed / deleted
+• Commit SHA
+• Task type (A/B/C/D/E)
+• URLs to test; if none, say "no URLs to test." State whether auto-apply
+is supported for this classification.
+• Whether schema was touched (yes/no), and migration filenames if yes
+• If schema was touched for CLOUD_DRIZZLE and context has a
+migration_runner_url, print that exact URL on its own line:
+MIGRATION_RUNNER_URL: <url>
+• Anything non-pattern-matched, and why
+
+Finish with exactly one final-line marker:
+[PRM_DONE] — complete and validated
+[PRM_BLOCKED] — something outside the repo prevented completion
+[PRM_ERROR] — implementation failed`;
 
 export function buildWrapper(ctx = {}, userPrompt = "") {
   return [
@@ -79,9 +149,33 @@ export function buildWrapper(ctx = {}, userPrompt = "") {
     "── PROJECT CONTEXT ──",
     ...contextLines(ctx),
     "",
+    "── BACKEND CLASSIFICATION ──",
+    "",
+    "Classify the backend before any other repository inspection.",
+    "",
     "── DISCIPLINE ──",
     "",
     DISCIPLINE,
+    "",
+    "── DISCOVERY ──",
+    "",
+    "Follow the discovery steps and classification-specific branch above.",
+    "",
+    "── IMPLEMENTATION ──",
+    "",
+    "Implement the user's request using the discovered repository patterns.",
+    "",
+    "── RULES ──",
+    "",
+    "Follow the safety, migration, and task rules above.",
+    "",
+    "── MIGRATION RULES (CONDITIONAL) ──",
+    "",
+    "Apply only the migration rules for the reported backend classification.",
+    "",
+    "── REPORT ──",
+    "",
+    "Follow the report format above. Keep the final marker on its own final line.",
     "",
     "── USER REQUEST ──",
     "",

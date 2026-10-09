@@ -1,9 +1,6 @@
 import { getMigrationKey } from "./migration-key.js";
 
 const RUNNER_PATH = "/api/public/ops/run-migrations";
-const SEED_PATH = "/api/public/ops/seed-migrations";
-const RUNNER_TIMEOUT_MS = 180000;
-const RUNNER_INTERVAL_MS = 15000;
 const URL_ATTEMPTS = 5;
 const URL_INTERVAL_MS = 20000;
 
@@ -33,16 +30,38 @@ function parseResponse(text, project = {}) {
   if (!statusMarker && ["done", "blocked", "error"].includes(project.status)) {
     statusMarker = project.status.toUpperCase();
   }
+
   const urls = new Set();
-  for (const match of response.matchAll(/https?:\/\/[^\s<>"'`]+|\/(?!\/)[A-Za-z0-9._~!$&'()*+,;=:@%/?#-]*/g)) {
+  for (const match of response.matchAll(/https?:\/\/[^\s<>"'`]+/g)) {
     urls.add(match[0].replace(/[),.;]+$/, ""));
   }
+  const runnerUrlFromReport =
+    response.match(/^MIGRATION_RUNNER_URL:\s*(https?:\/\/\S+)\s*$/im)?.[1] || null;
+  const reportedUrls = [...urls].filter((url) => {
+    try {
+      const parsed = new URL(url);
+      return parsed.pathname !== RUNNER_PATH;
+    } catch {
+      return false;
+    }
+  });
   const commitSha = response.match(/^\s*Commit SHA:\s*([a-f0-9]{7,40})\s*$/im)?.[1] || "";
+  const backendClassification =
+    response.match(/^\s*(?:Backend classification|Classification):\s*(CLOUD_DRIZZLE|CLOUD_SUPABASE_MIGRATIONS|EXTERNAL_SUPABASE|MOCK|NONE)\s*$/im)?.[1]
+    || project.backendClassification
+    || "";
+  const migrationFiles = [...new Set(
+    response.match(/(?:drizzle|supabase)\/migrations\/[^\s<>"'`]+/gi) || [],
+  )].map((file) => file.replace(/[),.;]+$/, ""));
+
   return {
     statusMarker,
-    reportedUrls: [...urls],
-    schemaTouched: /schema\s+was\s+touched\s*:\s*yes/i.test(response),
+    reportedUrls,
+    schemaTouched: /(?:schema\s+was\s+touched|whether\s+schema\s+was\s+touched(?:\s*\(yes\/no\))?)\s*:\s*yes/i.test(response),
     commitSha,
+    backendClassification: String(backendClassification).toUpperCase(),
+    migrationFiles,
+    runnerUrlFromReport,
   };
 }
 
@@ -57,53 +76,11 @@ function absoluteUrl(value, previewHost) {
   }
 }
 
-async function fetchJson(url) {
-  const response = await fetch(url, { method: "GET", cache: "no-store", credentials: "omit" });
-  let body = null;
-  try { body = await response.json(); } catch {}
-  return { response, body };
-}
-
-async function hasPreviewPermission(previewHost) {
-  if (!globalThis.chrome?.permissions?.contains) return true;
-  try {
-    const origin = new URL(previewHost).origin;
-    return await chrome.permissions.contains({ origins: [`${origin}/*`] });
-  } catch {
-    return false;
-  }
-}
-
-async function pollRunner(url, key) {
-  const deadline = Date.now() + RUNNER_TIMEOUT_MS;
-  let lastError = null;
-  while (Date.now() < deadline) {
-    try {
-      const { response, body } = await fetchJson(`${url}?key=${encodeURIComponent(key)}`);
-      if (response.status === 404) {
-        await sleep(RUNNER_INTERVAL_MS);
-        continue;
-      }
-      if (response.status === 200 && body?.ok === true) return body;
-      if (response.status === 500 && body?.error) {
-        return { failed: true, error: String(body.error), failed_at: body.failed_at || null };
-      }
-      if (response.status === 401) return { failed: true, error: "unauthorized", failed_at: null };
-      return { failed: true, error: String(body?.error || `Migration runner returned HTTP ${response.status}.`), failed_at: body?.failed_at || null };
-    } catch (error) {
-      lastError = error;
-      await sleep(RUNNER_INTERVAL_MS);
-    }
-  }
-  if (lastError) return { timeout: true, error: String(lastError.message || lastError) };
-  return { timeout: true };
-}
-
 async function verifyUrl(url) {
   for (let attempt = 0; attempt < URL_ATTEMPTS; attempt += 1) {
     try {
       let response = await fetch(url, { method: "HEAD", cache: "no-store", credentials: "omit" });
-      if (response.status === 404 || response.status === 405 || response.status === 501) {
+      if ([405, 501].includes(response.status)) {
         response = await fetch(url, { method: "GET", cache: "no-store", credentials: "omit" });
       }
       if (response.status === 200) return { url, state: "live" };
@@ -124,59 +101,82 @@ async function verifyUrl(url) {
   return { url, state: "deploy-failed" };
 }
 
+async function hasPreviewPermission(previewHost) {
+  if (!globalThis.chrome?.permissions?.contains) return true;
+  try {
+    const origin = new URL(previewHost).origin;
+    return await chrome.permissions.contains({ origins: [`${origin}/*`] });
+  } catch {
+    return false;
+  }
+}
+
 export async function runPostCompletionPipeline(projectId, assistantResponse, project = {}, sendStatus) {
   const id = String(projectId || "").trim();
   if (!id || typeof sendStatus !== "function") throw new Error("Project ID and status handler are required.");
   const parsed = parseResponse(assistantResponse, project);
-  const statusMarker = parsed.statusMarker;
-  if (statusMarker !== "DONE") {
-    await sendStatus(id, { status: (statusMarker || "ERROR").toLowerCase() });
-    return { status: (statusMarker || "ERROR").toLowerCase() };
+  const common = {
+    backendClassification: parsed.backendClassification || null,
+    ...(parsed.commitSha ? { commitSha: parsed.commitSha } : {}),
+  };
+
+  if (parsed.statusMarker !== "DONE") {
+    const status = (parsed.statusMarker || "ERROR").toLowerCase();
+    await sendStatus(id, { status, ...common });
+    return { status };
   }
 
   const previewHost = String(project.previewHost || `https://${id}.lovableproject.com`).replace(/\/$/, "");
-  let applied = [];
-  let skipped = [];
-  let previewPermissionChecked = false;
+  let runnerUrl = null;
+  let schemaPending = false;
+  const manualSchemaApplication = parsed.schemaTouched && parsed.backendClassification !== "CLOUD_DRIZZLE";
   if (parsed.schemaTouched) {
-    const key = await getMigrationKey(id);
-    if (!key) {
-      await sendStatus(id, { status: "error", error: "migration key not configured for this project" });
-      return { status: "error" };
+    if (manualSchemaApplication) {
+      await sendStatus(id, {
+        status: "schema-manual-required",
+        migration: "manual-required",
+        migrationFiles: parsed.migrationFiles,
+        ...common,
+      });
+    } else {
+      runnerUrl = parsed.runnerUrlFromReport;
+      if (!runnerUrl) {
+        const key = await getMigrationKey(id);
+        runnerUrl = key
+          ? `${previewHost}${RUNNER_PATH}?key=${encodeURIComponent(key)}`
+          : null;
+      }
+      if (!runnerUrl) {
+        await sendStatus(id, {
+          status: "schema-touched-no-runner",
+          migration: "manual-required",
+          migrationFiles: parsed.migrationFiles,
+          ...common,
+        });
+        return { status: "schema-touched-no-runner" };
+      }
+      schemaPending = true;
+      await sendStatus(id, {
+        status: "schema-pending",
+        migration: "manual-required",
+        migrationFiles: parsed.migrationFiles,
+        runnerUrl,
+        schemaPending: true,
+        applied: null,
+        ...common,
+      });
     }
-    if (!(await hasPreviewPermission(previewHost))) {
-      const error = "Preview host access is not granted to this extension; migration checks cannot run.";
-      await sendStatus(id, { status: "error", error });
-      return { status: "error", error };
-    }
-    previewPermissionChecked = true;
-    const result = await pollRunner(`${previewHost}${RUNNER_PATH}`, key);
-    if (result.timeout) {
-      await sendStatus(id, { status: "schema-timeout", error: result.error || "Migration runner did not deploy within 3 minutes." });
-      return { status: "schema-timeout" };
-    }
-    if (result.failed) {
-      await sendStatus(id, { status: "schema-failed", error: result.error, failed_at: result.failed_at });
-      return { status: "schema-failed" };
-    }
-    applied = Array.isArray(result.applied) ? result.applied : [];
-    skipped = Array.isArray(result.skipped) ? result.skipped : [];
-    await sendStatus(id, {
-      status: "migrated",
-      migration: applied.length ? "applied" : "no-op",
-      applied,
-      skipped,
-    });
   }
 
-  const urls = parsed.reportedUrls
+  const urls = [...new Set(parsed.reportedUrls
     .map((value) => absoluteUrl(value, previewHost))
-    .filter(Boolean);
-  if (urls.length && !previewPermissionChecked && !(await hasPreviewPermission(previewHost))) {
+    .filter(Boolean))];
+  if (urls.length && !(await hasPreviewPermission(previewHost))) {
     const error = "Preview host access is not granted to this extension; endpoint checks cannot run.";
-    await sendStatus(id, { status: "error", error });
+    await sendStatus(id, { status: "error", error, ...common });
     return { status: "error", error };
   }
+
   const perUrlStatuses = [];
   for (const url of urls) perUrlStatuses.push(await verifyUrl(url));
 
@@ -184,14 +184,14 @@ export async function runPostCompletionPipeline(projectId, assistantResponse, pr
   if (perUrlStatuses.length && perUrlStatuses.every((item) => item.state === "live")) finalStatus = "live";
   else if (perUrlStatuses.some((item) => item.state === "runtime-error")) finalStatus = "runtime-error";
   else if (perUrlStatuses.some((item) => item.state === "deploy-failed")) finalStatus = "deploy-failed";
+  if (manualSchemaApplication) finalStatus = "schema-manual-required";
 
   await sendStatus(id, {
     status: finalStatus,
-    migrations: applied,
-    applied,
-    skipped,
     urls: perUrlStatuses,
-    ...(parsed.commitSha ? { commitSha: parsed.commitSha } : {}),
+    ...(manualSchemaApplication ? { migration: "manual-required", migrationFiles: parsed.migrationFiles } : {}),
+    ...(runnerUrl ? { runnerUrl, schemaPending } : {}),
+    ...common,
   });
-  return { status: finalStatus, applied, skipped, urls: perUrlStatuses };
+  return { status: finalStatus, urls: perUrlStatuses, ...(runnerUrl ? { runnerUrl } : {}) };
 }

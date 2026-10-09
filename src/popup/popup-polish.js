@@ -85,8 +85,7 @@
 
     async function lovableTab() {
       const projectId = String(document.getElementById("projectValue")?.textContent || "").trim().replace(/^—$/, "");
-      const base44 = globalThis.workspace?.platform === "base44" || (typeof workspace !== "undefined" && workspace?.platform === "base44");
-      const tabs = await chrome.tabs.query({ url: [base44 ? "https://app.base44.com/apps/*" : "https://lovable.dev/*"] });
+      const tabs = await chrome.tabs.query({ url: ["https://lovable.dev/*"] });
       return tabs.find((item) => projectId && item.url?.includes(projectId)) || tabs.find((item) => item.active) || tabs[0] || null;
     }
 

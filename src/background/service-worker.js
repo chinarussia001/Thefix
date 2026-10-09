@@ -2,7 +2,6 @@ import { getConfig, setConfig } from "../shared/storage.js";
 import { getPromptSkillIds, withSkillInstructions } from "../shared/skill-instructions.js";
 import { buildDispatchEnvelope, gatherProjectContext, invalidateAllProjectContexts, invalidateProjectContext } from "../shared/context-builder.js";
 import { runPostCompletionPipeline } from "../shared/post-completion.js";
-import { setupProject } from "./setup.js";
 
 const CHATGPT_URL_PATTERNS = ["https://chatgpt.com/*"];
 const CHATGPT_BRIDGE_FILE = "src/content/chatgpt.js";
@@ -67,7 +66,7 @@ chrome.runtime.onStartup.addListener(() => {
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
-  if (changes.workspaceBindings || changes.projectIntegrations || changes.projectChatBindings || changes.lastPlatformWorkspaces || changes.lastLovableWorkspace || changes.pendingPrompt) {
+  if (changes.workspaceBindings || changes.projectIntegrations || changes.projectChatBindings || changes.lastPlatformWorkspaces || changes.lastLovableWorkspace || changes.pendingPrompt || changes.projectMigrationKeys) {
     void invalidateAllProjectContexts();
   }
 });
@@ -425,7 +424,7 @@ async function relayPromptToChatGpt(payload, sourceTabId = null) {
       activatedChatForDispatch &&
       sourceTab?.id &&
       sourceTab.id !== tab.id &&
-      (sourceTab.url?.startsWith("https://lovable.dev/") || sourceTab.url?.startsWith("https://app.base44.com/apps/"))
+      sourceTab.url?.startsWith("https://lovable.dev/")
     ) {
       await chrome.tabs.update(sourceTab.id, { active: true }).catch(() => {});
     }
@@ -493,7 +492,7 @@ async function handleCapturedPrompt(message, sender) {
   let repository = payload.repository || "";
   let repositoryDetectionSource = payload.repositoryDetectionSource || "";
   let lovableProjectId = payload.lovableProjectId || "";
-  const platform = payload.platform === "base44" || message.source === "base44" ? "base44" : "lovable";
+  const platform = "lovable";
 
   if (!repository) {
     const workspace = await detectLovableWorkspace(sender?.tab?.id, {
@@ -683,23 +682,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 
   if (!message || typeof message !== "object") return false;
-  if (message.type === "LOVARPM_SETUP_PROJECT") {
-    const projectId = String(message.projectId || "").trim();
-    setupProject(projectId, (payload) => {
-      chrome.runtime.sendMessage({ type: "SETUP_PROGRESS", payload }).catch(() => {});
-    })
-      .then(() => {
-        chrome.runtime.sendMessage({ type: "SETUP_DONE", payload: { ok: true } }).catch(() => {});
-        sendResponse({ ok: true });
-      })
-      .catch((error) => {
-        const detail = error instanceof Error ? error.message : String(error);
-        chrome.runtime.sendMessage({ type: "SETUP_FAILED", payload: { error: detail } }).catch(() => {});
-        sendResponse({ ok: false, error: detail });
-      });
-    return true;
-  }
-
   if (message.type === "LOVABURST_PREPARE_SPECIAL_OPERATION") {
     const operation = String(message.operation || "").trim();
     if (!["create-project", "analyze-project"].includes(operation)) { sendResponse({ ok: false, error: "Invalid operation." }); return false; }

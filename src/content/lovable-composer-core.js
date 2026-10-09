@@ -6,7 +6,7 @@
   const selectors = [
     "textarea[data-testid*='prompt' i]", "textarea[data-testid*='chat' i]",
     "textarea[placeholder*='Ask' i]", "textarea[placeholder*='message' i]",
-    "textarea[placeholder*='mensagem' i]", "textarea[placeholder*='Lovable' i]", "textarea[placeholder*='Base44' i]",
+    "textarea[placeholder*='mensagem' i]", "textarea[placeholder*='Lovable' i]",
     "[contenteditable='true'][data-testid*='prompt' i]",
     "[contenteditable='true'][data-testid*='chat' i]",
     "[contenteditable='true'][aria-label*='Ask' i]",
@@ -37,7 +37,7 @@
     const text = hints(element);
     if (/search|buscar|filter|filtro|rename|renomear|comment|coment[aá]rio/.test(text)) return -Infinity;
     let value = 0;
-    if (/prompt|ask|message|mensagem|chat|lovable|base44/.test(text)) value += 80;
+    if (/prompt|ask|message|mensagem|chat|lovable/.test(text)) value += 80;
     if (element.matches("textarea")) value += 22;
     if (element.getAttribute("contenteditable") === "true") value += 18;
     if (element.getAttribute("role") === "textbox") value += 10;
@@ -105,8 +105,8 @@
   }
 
   async function loadMode() {
-    state.platform = location.hostname === "app.base44.com" ? "base44" : "lovable";
-    state.projectId = location.pathname.match(state.platform === "base44" ? /\/apps\/([A-Za-z0-9-]+)/i : /\/projects\/([A-Za-z0-9-]+)/i)?.[1] || "";
+    state.platform = "lovable";
+    state.projectId = location.pathname.match(/\/projects\/([A-Za-z0-9-]+)/i)?.[1] || "";
     const stored = await chrome.storage.local.get([MODE_KEY, "config"]);
     state.globalEnabled = stored.config?.enabled !== false;
     state.projectEnabled = state.projectId ? stored[MODE_KEY]?.[state.projectId] !== false : false;

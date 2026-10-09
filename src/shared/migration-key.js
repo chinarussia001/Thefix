@@ -1,29 +1,35 @@
 const STORAGE_KEY = "projectMigrationKeys";
 
-export function generateMigrationKey() {
-  const bytes = new Uint8Array(32);
-  globalThis.crypto.getRandomValues(bytes);
-  return [...bytes].map((value) => value.toString(16).padStart(2, "0")).join("");
-}
-
 export async function getMigrationKey(projectId) {
   const id = String(projectId || "").trim();
-  if (!id) return "";
+  if (!id) throw new Error("Project ID was not provided.");
   const stored = await chrome.storage.local.get(STORAGE_KEY);
-  return String(stored[STORAGE_KEY]?.[id] || "");
+  return typeof stored[STORAGE_KEY]?.[id] === "string" ? stored[STORAGE_KEY][id] : "";
 }
 
 export async function setMigrationKey(projectId, key) {
   const id = String(projectId || "").trim();
-  const value = String(key || "").trim().toLowerCase();
+  const validation = validateKeyInput(key);
   if (!id) throw new Error("Project ID was not provided.");
-  if (!/^[a-f0-9]{64}$/.test(value)) throw new Error("Migration key must be 32-byte lowercase hex.");
+  if (!validation.ok) throw new Error(validation.error);
   const stored = await chrome.storage.local.get(STORAGE_KEY);
   const keys = stored[STORAGE_KEY] || {};
-  await chrome.storage.local.set({ [STORAGE_KEY]: { ...keys, [id]: value } });
-  return value;
+  await chrome.storage.local.set({ [STORAGE_KEY]: { ...keys, [id]: validation.value } });
+  return validation.value;
 }
 
-export async function getMigrationKeyFingerprint(projectId) {
-  return (await getMigrationKey(projectId)).slice(0, 8);
+export async function clearMigrationKey(projectId) {
+  const id = String(projectId || "").trim();
+  if (!id) throw new Error("Project ID was not provided.");
+  const stored = await chrome.storage.local.get(STORAGE_KEY);
+  const keys = { ...(stored[STORAGE_KEY] || {}) };
+  delete keys[id];
+  await chrome.storage.local.set({ [STORAGE_KEY]: keys });
+}
+
+export function validateKeyInput(raw) {
+  if (typeof raw !== "string" || !raw.trim()) {
+    return { ok: false, error: "Key cannot be empty." };
+  }
+  return { ok: true, value: raw };
 }

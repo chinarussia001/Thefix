@@ -94,7 +94,7 @@ async function waitChat(tabId, timeout = 20000) {
 
 async function newConversation(options = {}) {
   const projectId = workspace.lovableProjectId;
-  if (!projectId) throw new Error(`Open a ${workspace.platform === "base44" ? "Base44" : "Lovable"} project first.`);
+  if (!projectId) throw new Error("Open a Lovable project first.");
   const initialPrompt = String(options.initialPrompt || "").trim();
 
   if (!initialPrompt) await collectHandoffFromActiveConversation();
@@ -157,7 +157,7 @@ async function rememberLastWorkspace(nextWorkspace) {
     lovableProjectId: nextWorkspace.lovableProjectId,
     sourceTitle: nextWorkspace.sourceTitle || "",
     sourceUrl: nextWorkspace.sourceUrl || "",
-    platform: nextWorkspace.platform === "base44" ? "base44" : "lovable",
+    platform: "lovable",
     rememberedAt: now(),
   };
   const stored = await chrome.storage.local.get(LAST_WORKSPACES_KEY);
@@ -168,9 +168,9 @@ async function rememberLastWorkspace(nextWorkspace) {
   return snapshot;
 }
 
-async function lastWorkspace(platform = "lovable") {
+async function lastWorkspace() {
   const stored = await chrome.storage.local.get([LAST_WORKSPACES_KEY, LAST_WORKSPACE_KEY]);
-  return stored[LAST_WORKSPACES_KEY]?.[platform] || (platform === "lovable" ? stored[LAST_WORKSPACE_KEY] : null) || null;
+  return stored[LAST_WORKSPACES_KEY]?.lovable || stored[LAST_WORKSPACE_KEY] || null;
 }
 
 const FIRST_WORKSPACE_RELOAD_KEY = "lovaburstFirstWorkspaceReloadCompleted";
@@ -180,7 +180,7 @@ async function reloadFirstDetectedWorkspace(data) {
   const stored = await chrome.storage.local.get(FIRST_WORKSPACE_RELOAD_KEY);
   if (stored[FIRST_WORKSPACE_RELOAD_KEY]) return false;
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const prefix = data.platform === "base44" ? "https://app.base44.com/apps/" : "https://lovable.dev/";
+  const prefix = "https://lovable.dev/";
   if (!tab?.id || !tab.url?.startsWith(prefix) || !tab.url.includes(data.lovableProjectId)) return false;
   await chrome.storage.local.set({
     [FIRST_WORKSPACE_RELOAD_KEY]: {
@@ -194,10 +194,8 @@ async function reloadFirstDetectedWorkspace(data) {
 
 async function currentBuilderWorkspace() {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  const platform = await selectedPlatform();
-  const isSelectedPlatform = platform === "base44"
-    ? tab?.url?.startsWith("https://app.base44.com/apps/")
-    : tab?.url?.startsWith("https://lovable.dev/");
+  const platform = "lovable";
+  const isSelectedPlatform = tab?.url?.startsWith("https://lovable.dev/");
 
   // Leaving Lovable must not clear the selected project. The last project remains
   // active until the user opens/switches to another concrete Lovable project.
@@ -208,7 +206,7 @@ async function currentBuilderWorkspace() {
       : { outsideLovable: true, platform };
   }
 
-  const lovableProjectId = tab.url.match(platform === "base44" ? /\/apps\/([A-Za-z0-9-]+)/i : /\/projects\/([A-Za-z0-9-]+)/i)?.[1] || "";
+  const lovableProjectId = tab.url.match(/\/projects\/([A-Za-z0-9-]+)/i)?.[1] || "";
   if (!lovableProjectId) {
     const remembered = await lastWorkspace(platform);
     return remembered
@@ -245,16 +243,15 @@ function renderWorkspace(data = {}) {
     lovableProjectId: data.lovableProjectId || "",
     sourceTitle: data.sourceTitle || "",
     sourceUrl: data.sourceUrl || "",
-    platform: data.platform === "base44" ? "base44" : "lovable",
+    platform: "lovable",
     outsideLovable: Boolean(data.outsideLovable),
   };
 
   ui.project.textContent = workspace.lovableProjectId || "—";
-  ui.platformButtons.forEach((button) => button.classList.toggle("active", button.dataset.platform === workspace.platform));
   ui.refreshRepo.disabled = !workspace.lovableProjectId;
 
   if (workspace.outsideLovable) {
-    ui.repo.textContent = `Open a project in ${workspace.platform === "base44" ? "Base44" : "Lovable"}`;
+    ui.repo.textContent = "Open a project in Lovable";
     ui.repoState.textContent = "No project";
     ui.repoState.className = "state-pill is-empty";
   } else if (data.detecting) {

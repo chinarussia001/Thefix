@@ -24,8 +24,7 @@
   }
 
   async function findLovableTab(projectId) {
-    const base44 = globalThis.workspace?.platform === "base44" || (typeof workspace !== "undefined" && workspace?.platform === "base44");
-    const tabs = await chrome.tabs.query({ url: [base44 ? "https://app.base44.com/apps/*" : "https://lovable.dev/*"] });
+    const tabs = await chrome.tabs.query({ url: ["https://lovable.dev/*"] });
     return tabs.find((tab) => tab.url?.includes(projectId)) || null;
   }
 
@@ -42,7 +41,7 @@
 
     const projectId = await currentProjectId();
     if (!projectId) {
-      feedback(`Open a ${globalThis.workspace?.platform === "base44" ? "Base44" : "Lovable"} project before enhancing the prompt.`);
+      feedback("Open a Lovable project before enhancing the prompt.");
       return;
     }
 
@@ -65,7 +64,7 @@
     let timeoutId = null;
     try {
       const source = await findLovableTab(projectId);
-      if (!source?.id) throw new Error(`Could not find this project's ${globalThis.workspace?.platform === "base44" ? "Base44" : "Lovable"} tab.`);
+      if (!source?.id) throw new Error("Could not find this project's Lovable tab.");
 
       const timeout = new Promise((_, reject) => {
         timeoutId = setTimeout(

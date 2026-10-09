@@ -81,7 +81,7 @@
     const list = document.getElementById("chatTabSelectorList");
     if (!card || !list) return;
     const id = projectId();
-    if (!id) throw new Error(`Open a ${globalThis.workspace?.platform === "base44" ? "Base44" : "Lovable"} project first.`);
+    if (!id) throw new Error("Open a Lovable project first.");
     const tabs = await listTabs();
     card.hidden = false;
     list.replaceChildren();
@@ -152,7 +152,7 @@
         supabaseStatus: supabase?.status || "unknown",
         supabaseProjectRef: supabase?.projectRef || "",
         supabaseEvidence: supabase?.evidence || "",
-        connectorHints: ["GitHub", rec.platform === "base44" ? "Base44" : "Lovable", "Supabase"],
+        connectorHints: ["GitHub", "Lovable", "Supabase"],
         updatedAt: now(),
       },
       updatedAt: now(),
@@ -189,7 +189,7 @@
       const supabaseLine = ctx.supabaseStatus === "connected"
         ? `SUPABASE: connected${ctx.supabaseProjectRef ? ` (${ctx.supabaseProjectRef})` : ""}`
         : `SUPABASE: ${ctx.supabaseStatus || "unknown"}`;
-      const platformName = rec?.platform === "base44" ? "Base44" : "Lovable";
+      const platformName = "Lovable";
       return base.replace("[LOVABURST_PROJECT_CONTEXT_V1]", "[LOVABURST_PROJECT_CONTEXT_V2]") + [
         "",
         "PROJECT_INTEGRATIONS:",

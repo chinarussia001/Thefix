@@ -30,12 +30,6 @@
       script.src = chrome.runtime.getURL("src/popup/popup-progress.js");
       document.documentElement.appendChild(script);
     }
-    if (!document.getElementById("lovarpm-migration-runner-card")) {
-      const script = document.createElement("script");
-      script.id = "lovarpm-migration-runner-card";
-      script.src = chrome.runtime.getURL("src/popup/popup-migration-runner.js");
-      document.documentElement.appendChild(script);
-    }
   }
   loadV026Ui();
 
@@ -117,7 +111,7 @@
         supabaseState,
         allowLoading ? "Waiting for project" : "Not checked",
         allowLoading ? "Checking..." : "Optional",
-        allowLoading ? `Waiting for ${globalThis.workspace?.platform === "base44" ? "Base44" : "Lovable"} project` : "Supabase could not be checked yet",
+        allowLoading ? "Waiting for Lovable project" : "Supabase could not be checked yet",
       );
       return null;
     }
@@ -264,8 +258,7 @@
     lastRefreshProjectId = id;
     setCard(supabaseCard, "loading", supabaseValue, supabaseState, "Checking...", "Checking...", "Refreshing Supabase integration");
     try {
-      const base44 = globalThis.workspace?.platform === "base44" || (typeof workspace !== "undefined" && workspace?.platform === "base44");
-      const tabs = await chrome.tabs.query({ url: [base44 ? "https://app.base44.com/apps/*" : "https://lovable.dev/*"] });
+      const tabs = await chrome.tabs.query({ url: ["https://lovable.dev/*"] });
       const tab = tabs.find((item) => item.url?.includes(id));
       if (!tab?.id) {
         await renderSupabase({ allowLoading: false });

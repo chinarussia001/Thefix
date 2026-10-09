@@ -148,12 +148,12 @@ async function forwardComposerObjective(message, sender) {
 }
 
 function isBuilderUrl(url) {
-  return String(url || "").startsWith("https://lovable.dev/") || String(url || "").startsWith("https://app.base44.com/apps/");
+  return String(url || "").startsWith("https://lovable.dev/");
 }
 
 async function resolveLovableSourceTab(projectId, senderTab) {
   if (senderTab?.id && isBuilderUrl(senderTab.url)) return senderTab;
-  const tabs = await chrome.tabs.query({ url: ["https://lovable.dev/*", "https://app.base44.com/apps/*"] });
+  const tabs = await chrome.tabs.query({ url: ["https://lovable.dev/*"] });
   return tabs.find((item) => item.url?.includes(projectId)) || tabs.find((item) => item.active) || tabs[0] || null;
 }
 
@@ -177,7 +177,7 @@ async function enhanceComposerPrompt(message, sender) {
   if (!tab?.id) throw new Error("Connect a ChatGPT conversation to this project before using Boost.");
 
   const skills = await selectedSkills(projectId);
-  const platform = sender?.tab?.url?.startsWith("https://app.base44.com/") ? "base44" : "lovable";
+  const platform = "lovable";
   const preparedPrompt = await globalThis.LovaRPMLicense?.preparePrompt?.("enhance", { text, lovableProjectId: projectId, platform, repository: String(message.repository || ""), title: String(message.title || sender?.tab?.title || ""), skills });
   if (!preparedPrompt) throw new Error("The server did not prepare the enhancement.");
   const prompt = withSkillInstructions(preparedPrompt, skills);

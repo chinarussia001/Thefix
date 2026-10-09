@@ -36,7 +36,7 @@
   });
   const REQUEST_MARKERS = ["[PRM_BUILD_REQUEST_V5]", "[LOVABURST_REQUEST_V3]", "[LOVABURST_REQUEST_V2]", "[LOVABURST_REQUEST_V1]", "[LOVARPM_REQUEST_V3]", "[LOVARPM_REQUEST_V2]", "[LOVARPM_REQUEST_V1]"];
   const isLovaRPMRequest = (text) => REQUEST_MARKERS.some((marker) => String(text || "").includes(marker));
-  const PROJECT_ID_PATTERN = /(?:LOVABLE_PROJECT|BASE44_APP|lovable_project_id):\s*([A-Za-z0-9-]+)/i;
+  const PROJECT_ID_PATTERN = /(?:LOVABLE_PROJECT|lovable_project_id):\s*([A-Za-z0-9-]+)/i;
   const RUN_STATUS_STORAGE_KEY = "projectRunStatuses";
   const LARGE_PROMPT_THRESHOLD = 12000;
   const REQUEST_HEADER_SCAN_LIMIT = 4096;

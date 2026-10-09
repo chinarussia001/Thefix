@@ -162,7 +162,7 @@
 
   async function handleSwitch(button) {
     const projectId = currentProjectId();
-    if (!projectId) throw new Error(`Open a ${globalThis.workspace?.platform === "base44" ? "Base44" : "Lovable"} project first.`);
+    if (!projectId) throw new Error("Open a Lovable project first.");
     button.disabled = true;
     try {
       const selected = await chooseChatTab(projectId);

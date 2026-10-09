@@ -4,7 +4,7 @@
   window.__LOVABURST_CHATGPT_ACTIVITY__ = true;
 
   const KEY = "projectRunStatuses";
-  const PROJECT_RE = /(?:LOVABLE_PROJECT|BASE44_APP):\s*([A-Za-z0-9-]+)/i;
+  const PROJECT_RE = /LOVABLE_PROJECT:\s*([A-Za-z0-9-]+)/i;
   const REQUEST_MARKERS = ["[LOVABURST_REQUEST_V3]", "[LOVABURST_REQUEST_V2]", "[LOVABURST_REQUEST_V1]", "[LOVARPM_REQUEST_V3]", "[LOVARPM_REQUEST_V2]", "[LOVARPM_REQUEST_V1]"];
   const isLovaRPMRequest = (text) => REQUEST_MARKERS.some((marker) => String(text || "").includes(marker));
   const ACTION_RE = /^(implementando|analisando|validando|verificando|lendo|pesquisando|atualizando|criando|editando|preparando|processando|reviewing|implementing|analyzing|analysing|validating|checking|reading|searching|updating|creating|editing|preparing|processing)\b/i;

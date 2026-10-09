@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "LovaRPM",
   "version": "2.9.8",
-  "description": "LovaRPM extension for Lovable and Base44 projects, with GitHub as the primary source for code changes.",
+  "description": "LovaRPM extension for Lovable projects, with GitHub as the primary source for code changes.",
   "permissions": [
     "storage",
     "tabs",
@@ -12,7 +12,6 @@
   ],
   "host_permissions": [
     "https://lovable.dev/*",
-    "https://app.base44.com/*",
     "https://chatgpt.com/*",
     "https://oypjjsyqpnxvkadatkbi.supabase.co/*",
     "https://happy-little101.lovable.app/*",
@@ -32,31 +31,6 @@
     }
   },
   "content_scripts": [
-    {
-      "matches": [
-        "https://app.base44.com/apps/*"
-      ],
-      "js": [
-        "src/content/base44-github-probe.js"
-      ],
-      "run_at": "document_start",
-      "world": "MAIN"
-    },
-    {
-      "matches": [
-        "https://app.base44.com/apps/*"
-      ],
-      "js": [
-        "src/content/lovable-context-guard.js",
-        "src/shared/attachments.js",
-        "src/content/base44.js",
-        "src/content/lovable-composer-core.js",
-        "src/content/lovable-attachments.js",
-        "src/content/lovable-composer.js",
-        "src/content/lovable-run-monitor.js"
-      ],
-      "run_at": "document_idle"
-    },
     {
       "matches": [
         "https://lovable.dev/*"
@@ -127,7 +101,6 @@
       ],
       "matches": [
         "https://lovable.dev/*",
-        "https://app.base44.com/*",
         "https://chatgpt.com/*"
       ]
     }

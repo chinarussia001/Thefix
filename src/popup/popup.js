@@ -17,7 +17,6 @@ const KEY = "projectChatBindings";
 const BRIDGE = "src/content/chatgpt.js";
 const LAST_WORKSPACE_KEY = "lastLovableWorkspace";
 const LAST_WORKSPACES_KEY = "lastPlatformWorkspaces";
-const PLATFORM_KEY = "selectedBuilderPlatform";
 const PROJECT_SKILLS_KEY = "projectSkillSelections";
 const $ = (selector) => document.querySelector(selector);
 
@@ -74,7 +73,6 @@ const ui = {
   settings: $("#settingsButton"),
   hideBadge: $("#hideLovableBadgeButton"),
   downloadProject: $("#downloadProjectButton"),
-  platformButtons: [...document.querySelectorAll("[data-platform]")],
 };
 
 let workspace = { repository: "", lovableProjectId: "", sourceTitle: "", sourceUrl: "", platform: "lovable", outsideLovable: true };
@@ -83,18 +81,6 @@ let refreshingChat = false;
 
 const now = () => new Date().toISOString();
 const makeId = () => crypto.randomUUID?.() || `chat-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
-
-async function selectedPlatform() {
-  const stored = await chrome.storage.local.get(PLATFORM_KEY);
-  return stored[PLATFORM_KEY] === "base44" ? "base44" : "lovable";
-}
-
-async function selectPlatform(platform) {
-  const value = platform === "base44" ? "base44" : "lovable";
-  await chrome.storage.local.set({ [PLATFORM_KEY]: value });
-  ui.platformButtons.forEach((button) => button.classList.toggle("active", button.dataset.platform === value));
-  return value;
-}
 
 const SKILLS = {
   "interface-premium": { name: "Premium Interface" },
@@ -271,7 +257,7 @@ async function ownerOf(tab) {
 
 async function linkTab(tabId) {
   const projectId = workspace.lovableProjectId;
-  if (!projectId) throw new Error(`Open a ${workspace.platform === "base44" ? "Base44" : "Lovable"} project first.`);
+  if (!projectId) throw new Error("Open a Lovable project first.");
 
   const tab = await chrome.tabs.get(tabId);
   if (!tab?.id || !tab.url?.startsWith("https://chatgpt.com/")) {
@@ -341,9 +327,9 @@ async function contextPrompt(rec) {
     ? objectives.map((item, index) => `${index + 1}. ${item.text}`).join("\n")
     : "No previous requests have been recorded locally by LovaRPM.";
 
-  const platform = rec?.platform === "base44" ? "base44" : "lovable";
-  const platformName = platform === "base44" ? "Base44" : "Lovable";
-  const platformKey = platform === "base44" ? "BASE44_APP" : "LOVABLE_PROJECT";
+  const platform = "lovable";
+  const platformName = "Lovable";
+  const platformKey = "LOVABLE_PROJECT";
   return [
     "[LOVABURST_PROJECT_CONTEXT_V2]",
     "MODE: PROJECT_CONTINUATION",
