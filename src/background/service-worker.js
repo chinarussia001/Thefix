@@ -1,770 +1,305 @@
 import { getConfig, setConfig } from "../shared/storage.js";
-import { getPromptSkillIds, withSkillInstructions } from "../shared/skill-instructions.js";
-import { buildDispatchEnvelope, gatherProjectContext, invalidateAllProjectContexts, invalidateProjectContext } from "../shared/context-builder.js";
-import { runPostCompletionPipeline } from "../shared/post-completion.js";
 
-const CHATGPT_URL_PATTERNS = ["https://chatgpt.com/*"];
-const CHATGPT_BRIDGE_FILE = "src/content/chatgpt.js";
+const TASK_STATUS_KEY = "projectRunStatuses";
+const WORKSPACE_BINDINGS_KEY = "workspaceBindings";
+const TASK_POLL_ALARM = "lovarpm-task-poll";
+const REPOSITORY_PATTERN = /^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/;
 
-async function configureSidePanel() {
+async function configurePanel() {
   if (!chrome.sidePanel?.setPanelBehavior) return;
-
-  try {
-    await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
-  } catch (error) {
-    console.warn("[LovaRPM] Não foi possível configurar o painel lateral:", error);
-  }
+  await chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true });
 }
 
-async function cleanChatGptOnlyState() {
-  const config = await getConfig();
-  const migration = await chrome.storage.local.get(["repositoryDetectionMigrationV0400", "projectChatBindings", "chatgptOnlyCleanupV261"]);
-  const legacyProviderKey = ["ai", "Provider"].join("");
-  const removedAssistantName = String.fromCharCode(103, 101, 109, 105, 110, 105);
-  const legacySecondaryEnabledKey = removedAssistantName + "Enabled";
-  const cleanConfig = { ...config };
-  delete cleanConfig[legacyProviderKey];
-  delete cleanConfig[legacySecondaryEnabledKey];
-  const patch = { config: cleanConfig };
-
-  if (!migration.repositoryDetectionMigrationV0400) {
-    patch.workspaceBindings = {};
-    patch.repositoryDetectionMigrationV0400 = true;
-  }
-
-  if (!migration.chatgptOnlyCleanupV261) {
-    const bindings = migration.projectChatBindings || {};
-    const cleaned = {};
-    for (const [projectId, record] of Object.entries(bindings)) {
-      const conversations = (Array.isArray(record?.conversations) ? record.conversations : [])
-        .filter((item) => String(item?.url || item?.lockedUrl || "").startsWith("https://chatgpt.com/") && !`${item?.title || ""} ${item?.lockedTitle || ""}`.toLowerCase().includes(removedAssistantName));
-      const activeStillExists = conversations.some((item) => item.id === record?.activeConversationId);
-      const cleanRecord = { ...record, conversations: conversations.map(({ provider, ...item }) => item), activeConversationId: activeStillExists ? record.activeConversationId : (conversations[conversations.length - 1]?.id || "") };
-      delete cleanRecord[legacyProviderKey];
-      cleaned[projectId] = cleanRecord;
-    }
-    patch.projectChatBindings = cleaned;
-    patch.projectRunStatuses = {};
-    patch.chatgptOnlyCleanupV261 = true;
-    await chrome.storage.local.remove(["aiLink", "pendingPrompt", removedAssistantName + "LovableRelays"]);
-  }
-
-  await chrome.storage.local.set(patch);
-}
-
-chrome.runtime.onInstalled.addListener(async () => {
-  await cleanChatGptOnlyState();
-  await invalidateAllProjectContexts();
-  await configureSidePanel();
-});
-
-chrome.runtime.onStartup.addListener(() => {
-  void cleanChatGptOnlyState();
-  void invalidateAllProjectContexts();
-  configureSidePanel();
-});
-
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area !== "local") return;
-  if (changes.workspaceBindings || changes.projectIntegrations || changes.projectChatBindings || changes.lastPlatformWorkspaces || changes.lastLovableWorkspace || changes.pendingPrompt || changes.projectMigrationKeys) {
-    void invalidateAllProjectContexts();
-  }
-});
-
-void cleanChatGptOnlyState();
-configureSidePanel();
-
-
-async function listChatGptTabs() {
-  const tabs = await chrome.tabs.query({ url: CHATGPT_URL_PATTERNS });
-  const removedAssistantName = String.fromCharCode(103, 101, 109, 105, 110, 105);
-  return tabs
-    .filter((tab) => tab.id && !String(tab.title || "").toLowerCase().includes(removedAssistantName))
-    .map((tab) => ({
-      tabId: tab.id,
-      title: tab.title || "ChatGPT",
-      url: tab.url || "https://chatgpt.com/",
-      active: Boolean(tab.active),
-      windowId: tab.windowId,
-    }));
-}
-
-async function getStoredChatGptLink() {
-  const stored = await chrome.storage.local.get("chatgptLink");
-  return stored.chatgptLink || null;
-}
-
-async function clearChatGptLink() {
-  await chrome.storage.local.remove("chatgptLink");
-}
-
-async function getLinkedChatGptTab() {
-  const link = await getStoredChatGptLink();
-  if (!link?.tabId) return null;
-
-  try {
-    const tab = await chrome.tabs.get(link.tabId);
-    if (!tab?.id || !tab.url?.startsWith("https://chatgpt.com/")) {
-      await clearChatGptLink();
-      return null;
-    }
-
-    if (tab.url !== link.url || tab.title !== link.title) {
-      await chrome.storage.local.set({
-        chatgptLink: {
-          ...link,
-          url: tab.url || link.url,
-          title: tab.title || link.title || "ChatGPT",
-          updatedAt: new Date().toISOString(),
-        },
-      });
-    }
-
-    return tab;
-  } catch {
-    // A tab pode ter sido recriada pelo Chrome. Tentamos recuperar pela URL exata uma vez.
-    const tabs = await listChatGptTabs();
-    const recovered = tabs.find((tab) => link.url && tab.url === link.url);
-
-    if (recovered?.tabId) {
-      const nextLink = {
-        tabId: recovered.tabId,
-        url: recovered.url,
-        title: recovered.title,
-        linkedAt: link.linkedAt || new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+async function cleanLegacyState() {
+  const stored = await chrome.storage.local.get(["config", "projectChatBindings", WORKSPACE_BINDINGS_KEY, "lovarpmChatRemovalV1"]);
+  const bindings = { ...(stored[WORKSPACE_BINDINGS_KEY] || {}) };
+  for (const [projectId, record] of Object.entries(stored.projectChatBindings || {})) {
+    if (record?.repository && REPOSITORY_PATTERN.test(record.repository)) {
+      bindings[projectId] = {
+        ...bindings[projectId],
+        repository: record.repository,
+        branch: String(record.branch || bindings[projectId]?.branch || "main"),
+        source: "legacy-project-binding",
       };
-      await chrome.storage.local.set({ chatgptLink: nextLink });
-      return chrome.tabs.get(recovered.tabId);
     }
-
-    await clearChatGptLink();
-    return null;
+  }
+  const config = { ...(stored.config || {}) };
+  delete config.chatgptEnabled;
+  delete config.chatgptCheckIntervalSeconds;
+  delete config.chatgptAutoCheckPaused;
+  await chrome.storage.local.set({ config, [WORKSPACE_BINDINGS_KEY]: bindings });
+  if (!stored.lovarpmChatRemovalV1) {
+    await chrome.storage.local.remove([
+      "chatgptLink",
+      "projectChatBindings",
+      "pendingPrompt",
+      "aiLink",
+      "projectMigrationKeys",
+      "projectRunStatuses",
+    ]);
+    await chrome.storage.local.set({ lovarpmChatRemovalV1: true });
   }
 }
 
-async function linkChatGptTab(tabId) {
-  if (!Number.isInteger(tabId)) {
-    throw new Error("Invalid ChatGPT tab.");
-  }
-
-  const tab = await chrome.tabs.get(tabId);
-  if (!tab?.id || !tab.url?.startsWith("https://chatgpt.com/")) {
-    throw new Error("The selected tab is not a ChatGPT conversation.");
-  }
-
-  const bridgeReady = await ensureChatGptBridge(tab.id);
-  if (!bridgeReady) {
-    throw new Error("The LovaRPM bridge did not respond in this ChatGPT tab.");
-  }
-
-  const link = {
-    tabId: tab.id,
-    url: tab.url || "https://chatgpt.com/",
-    title: tab.title || "ChatGPT",
-    linkedAt: new Date().toISOString(),
-  };
-  await chrome.storage.local.set({ chatgptLink: link });
-  return link;
+function parseRepository(value) {
+  const match = String(value || "").trim().match(REPOSITORY_PATTERN);
+  return match ? `${match[1]}/${match[2]}` : "";
 }
 
-async function getChatGptStatus() {
-  const tabs = await listChatGptTabs();
-  const linkedTab = await getLinkedChatGptTab();
-  const link = linkedTab ? await getStoredChatGptLink() : null;
-
-  return {
-    connected: Boolean(linkedTab?.id),
-    link,
-    tabs,
-  };
-}
-
-async function sendPromptMessage(tabId, prompt) {
-  return chrome.tabs.sendMessage(tabId, {
-    type: "LOVABURST_SUBMIT_TO_CHATGPT",
-    prompt,
-    implementationTask: true,
-  });
-}
-
-async function ensureChatGptBridge(tabId) {
-  try {
-    const ping = await chrome.tabs.sendMessage(tabId, { type: "LOVABURST_CONTENT_PING" });
-    if (ping?.ok && ping.source === "chatgpt") return true;
-  } catch {}
-
-  await chrome.scripting.executeScript({
-    target: { tabId },
-    files: [CHATGPT_BRIDGE_FILE],
-  });
-
-  const ping = await chrome.tabs.sendMessage(tabId, { type: "LOVABURST_CONTENT_PING" });
-  return Boolean(ping?.ok && ping.source === "chatgpt");
-}
-
-function mainWorldWorkspaceProbe() {
-  const blocked = new Set([
-    "settings", "marketplace", "features", "topics", "collections", "login", "signup",
-    "projects", "project", "lovable", "api", "assets", "src", "public", "blob", "tree",
-    "en", "docs",
-  ]);
-  const scored = new Map();
-
-  const normalizePlainRepository = (value) => {
-    const text = String(value || "").trim();
-    const match = text.match(/^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?$/);
-    if (!match) return "";
-
-    const owner = match[1];
-    const repo = match[2];
-    if (blocked.has(owner.toLowerCase()) || blocked.has(repo.toLowerCase())) return "";
-    if (owner.length < 2 || repo.length < 2) return "";
-    return `${owner}/${repo}`;
-  };
-
-  const normalizeGithubUrl = (value) => {
-    if (!value) return "";
-    const raw = String(value).trim();
-
-    const ssh = raw.match(/^git@github\.com:([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?$/i);
-    if (ssh) return normalizePlainRepository(`${ssh[1]}/${ssh[2]}`);
-
-    let url;
-    try {
-      url = new URL(raw, location.href);
-    } catch {
-      return "";
-    }
-
-    const host = url.hostname.toLowerCase();
-    if (host !== "github.com" && host !== "www.github.com") return "";
-
-    const parts = url.pathname.split("/").filter(Boolean);
-    if (parts.length < 2) return "";
-    return normalizePlainRepository(`${parts[0]}/${parts[1]}`);
-  };
-
+function inspectLovablePage() {
+  const projectId = location.pathname.match(/\/(?:projects|apps)\/([A-Za-z0-9-]+)/i)?.[1] || "";
+  const blocked = new Set(["settings", "marketplace", "features", "topics", "collections", "login", "signup", "projects", "project", "lovable", "api", "assets", "src", "public", "en", "docs"]);
+  const repositories = new Map();
   const add = (value, score) => {
-    const repo = normalizeGithubUrl(value);
-    if (!repo) return;
-    scored.set(repo, Math.max(scored.get(repo) || 0, score));
+    const text = String(value || "").trim();
+    const match = text.match(/(?:https?:\/\/(?:www\.)?github\.com\/|git@github\.com:)([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?(?:[/?#]|$)/i)
+      || text.match(/^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+?)(?:\.git)?$/);
+    if (!match || match[1].length < 2 || match[2].length < 2 ||
+        blocked.has(match[1].toLowerCase()) || blocked.has(match[2].toLowerCase())) return;
+    const repository = `${match[1]}/${match[2]}`;
+    repositories.set(repository, Math.max(repositories.get(repository) || 0, score));
   };
-
-  const collectText = (value, score) => {
-    if (value == null) return;
-    let text;
-
-    try {
-      text = typeof value === "string" ? value : JSON.stringify(value);
-    } catch {
+  const root = document.documentElement;
+  if (root?.dataset?.lovaburstRepositoryProject === projectId) add(root.dataset.lovaburstRepository, 200);
+  if (root?.dataset?.lovaburstGitsyncProject === projectId) add(root.dataset.lovaburstGitsyncRepository, 190);
+  for (const anchor of document.querySelectorAll('a[href*="github.com"]')) add(anchor.href, 120);
+  const inspect = (value, score, depth = 0) => {
+    if (depth > 4 || value == null) return;
+    if (typeof value === "string") {
+      if (value.length < 200_000) {
+        for (const match of value.match(/(?:https?:\/\/(?:www\.)?github\.com\/|git@github\.com:)[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?/gi) || []) add(match, score);
+        add(value, score - 20);
+      }
       return;
     }
-
-    if (!text) return;
-    text = text.slice(0, 300000);
-
-    const patterns = [
-      /https?:\/\/(?:www\.)?github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?/gi,
-      /git@github\.com:[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?/gi,
-    ];
-
-    for (const pattern of patterns) {
-      for (const match of text.match(pattern) || []) add(match, score);
+    if (Array.isArray(value)) {
+      for (const item of value.slice(0, 500)) inspect(item, score - 1, depth + 1);
+      return;
+    }
+    if (typeof value === "object") {
+      for (const [key, item] of Object.entries(value).slice(0, 500)) inspect(item, /repo|github|gitSync|owner/i.test(key) ? score + 15 : score - 2, depth + 1);
     }
   };
-
-  const projectId = location.pathname.match(/\/(?:projects|apps)\/([A-Za-z0-9-]+)/i)?.[1] || "";
-
-  try {
-    const root = document.documentElement;
-    const boundProject = root?.dataset?.lovaburstRepositoryProject || "";
-
-    if (boundProject && boundProject === projectId) {
-      const trusted = normalizePlainRepository(root?.dataset?.lovaburstRepository || "");
-      if (trusted) scored.set(trusted, 180);
-    }
-  } catch {}
-
-  try {
-    for (const anchor of document.querySelectorAll('a[href*="github.com"], a[href^="git@github.com:"]')) {
-      add(anchor.href || anchor.getAttribute("href"), 140);
-    }
-  } catch {}
-
-  try {
-    collectText(document.documentElement?.innerHTML, 55);
-  } catch {}
-
+  for (const key of ["__NEXT_DATA__", "__INITIAL_STATE__", "__PRELOADED_STATE__", "__APOLLO_STATE__", "__REACT_QUERY_STATE__", "__lovable", "lovable"]) {
+    try { inspect(window[key], 100); } catch {}
+  }
   try {
     for (let index = 0; index < localStorage.length; index += 1) {
       const key = localStorage.key(index) || "";
-      collectText(`${key}:${localStorage.getItem(key) || ""}`, /github|repo|project|workspace/i.test(key) ? 120 : 80);
+      if (/github|repo|project|workspace/i.test(key)) inspect(localStorage.getItem(key), 80);
     }
   } catch {}
-
-  try {
-    for (let index = 0; index < sessionStorage.length; index += 1) {
-      const key = sessionStorage.key(index) || "";
-      collectText(`${key}:${sessionStorage.getItem(key) || ""}`, /github|repo|project|workspace/i.test(key) ? 115 : 75);
-    }
-  } catch {}
-
-  const preferredGlobals = [
-    "__NEXT_DATA__", "__INITIAL_STATE__", "__PRELOADED_STATE__", "__APOLLO_STATE__",
-    "__REACT_QUERY_STATE__", "__remixContext", "__ROUTE_DATA__", "__lovable", "lovable",
-  ];
-
-  for (const key of preferredGlobals) {
-    try {
-      collectText(window[key], 125);
-    } catch {}
-  }
-
-  const repository = [...scored.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] || "";
-  return { repository, lovableProjectId: projectId };
-}
-
-async function detectLovableWorkspace(tabId, payload = {}) {
-  const lovableProjectId = payload.lovableProjectId || "";
-  const workspaceKey = lovableProjectId || payload.url || "";
-
-  if (payload.domRepository) {
-    return { repository: payload.domRepository, source: "isolated-dom", lovableProjectId };
-  }
-
-  if (workspaceKey) {
-    const stored = await chrome.storage.local.get("workspaceBindings");
-    const cached = stored.workspaceBindings?.[workspaceKey]?.repository;
-    if (cached) return { repository: cached, source: "workspace-cache", lovableProjectId };
-  }
-
-  if (!tabId) return { repository: "", source: "none", lovableProjectId };
-
-  try {
-    const results = await chrome.scripting.executeScript({
-      target: { tabId },
-      world: "MAIN",
-      func: mainWorldWorkspaceProbe,
-    });
-    const result = results?.[0]?.result || {};
-    const repository = result.repository || "";
-    const projectId = result.lovableProjectId || lovableProjectId;
-
-    if (repository && (projectId || workspaceKey)) {
-      const key = projectId || workspaceKey;
-      const stored = await chrome.storage.local.get("workspaceBindings");
-      await chrome.storage.local.set({
-        workspaceBindings: {
-          ...(stored.workspaceBindings || {}),
-          [key]: {
-            repository,
-            detectedAt: new Date().toISOString(),
-            source: "main-world",
-          },
-        },
-      });
-    }
-
-    return { repository, source: repository ? "main-world" : "none", lovableProjectId: projectId };
-  } catch {
-    return { repository: "", source: "none", lovableProjectId };
-  }
-}
-
-const sleepBackground = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-async function relayPromptToChatGpt(payload, sourceTabId = null) {
-  const config = await getConfig();
-  if (config.enabled === false || config.chatgptEnabled === false) {
-    throw new Error("The ChatGPT integration is disabled in LovaRPM.");
-  }
-
-  const tab = await getLinkedChatGptTab();
-  if (!tab?.id) {
-    throw new Error("ChatGPT is not linked. Open the LovaRPM panel and link a ChatGPT conversation.");
-  }
-
-  const preparedPrompt = await globalThis.LovaRPMLicense?.preparePrompt?.("main", payload);
-  if (!preparedPrompt) throw new Error("The server did not prepare the operation.");
-  const envelope = await buildDispatchEnvelope(payload.lovableProjectId, preparedPrompt);
-  const prompt = withSkillInstructions(envelope, payload.skills);
-  let sourceTab = null;
-  let activatedChatForDispatch = false;
-
-  try {
-    if (Number.isInteger(sourceTabId)) {
-      sourceTab = await chrome.tabs.get(sourceTabId).catch(() => null);
-    }
-
-    // ChatGPT currently defers parts of its composer while a tab is backgrounded.
-    // Briefly make the linked chat the active tab so React processes the injected
-    // input/click immediately, then restore the Lovable tab after dispatch.
-    if (!tab.active) {
-      await chrome.tabs.update(tab.id, { active: true });
-      activatedChatForDispatch = true;
-      await sleepBackground(180);
-    }
-
-    const bridgeReady = await ensureChatGptBridge(tab.id);
-    if (!bridgeReady) throw new Error("The ChatGPT bridge did not respond after injection.");
-
-    const response = await sendPromptMessage(tab.id, prompt);
-    if (!response?.ok) {
-      throw new Error(response?.error || "ChatGPT did not confirm that the prompt was sent.");
-    }
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    const failure = /license|protected features remain locked/i.test(detail)
-      ? "LovaRPM license authorization failed"
-      : "Could not activate the LovaRPM bridge in ChatGPT";
-    throw new Error(`${failure}: ${detail}`);
-  } finally {
-    if (
-      activatedChatForDispatch &&
-      sourceTab?.id &&
-      sourceTab.id !== tab.id &&
-      sourceTab.url?.startsWith("https://lovable.dev/")
-    ) {
-      await chrome.tabs.update(sourceTab.id, { active: true }).catch(() => {});
-    }
-  }
-
-  return { tabId: tab.id };
-}
-
-const PROJECT_RUN_STATUS_KEY = "projectRunStatuses";
-const ACCESS_BOOTSTRAP_KEY = "accessBootstrapConversationsV219";
-const POST_COMPLETION_RUNS = new Set();
-
-async function accessBootstrapState(projectId) {
-  const id = String(projectId || "").trim();
-  if (!id) return { required: false, key: "" };
-  const stored = await chrome.storage.local.get(["projectChatBindings", ACCESS_BOOTSTRAP_KEY]);
-  const record = stored.projectChatBindings?.[id];
-  const conversation = record?.conversations?.find((item) => item.id === record.activeConversationId) || null;
-  const identity = String(conversation?.id || record?.activeConversationId || conversation?.url || (conversation?.tabId ? `tab-${conversation.tabId}` : "")).trim();
-  if (!identity) return { required: true, key: "" };
-  const key = `${id}::${identity}`;
-  return { required: !Boolean(stored[ACCESS_BOOTSTRAP_KEY]?.[key]), key };
-}
-
-async function markAccessBootstrapComplete(key) {
-  const id = String(key || "").trim();
-  if (!id) return;
-  const stored = await chrome.storage.local.get(ACCESS_BOOTSTRAP_KEY);
-  const entries = stored[ACCESS_BOOTSTRAP_KEY] || {};
-  await chrome.storage.local.set({
-    [ACCESS_BOOTSTRAP_KEY]: {
-      ...entries,
-      [id]: { completedAt: new Date().toISOString() },
-    },
-  });
-}
-
-async function setProjectRunStatus(projectId, patch) {
-  if (!projectId) return null;
-  const stored = await chrome.storage.local.get(PROJECT_RUN_STATUS_KEY);
-  const statuses = stored[PROJECT_RUN_STATUS_KEY] || {};
-  const previous = statuses[projectId] || {};
-  const next = {
-    ...previous,
-    ...patch,
+  return {
     projectId,
-    updatedAt: new Date().toISOString(),
+    repository: [...repositories.entries()].sort((left, right) => right[1] - left[1])[0]?.[0] || "",
+  };
+}
+
+async function getWorkspace(tabId, supplied = {}) {
+  const tab = Number.isInteger(tabId) ? await chrome.tabs.get(tabId).catch(() => null) : null;
+  const pageProjectId = String(supplied.projectId || tab?.url?.match(/\/(?:projects|apps)\/([A-Za-z0-9-]+)/i)?.[1] || "").trim();
+  if (!pageProjectId) return { projectId: "", repository: parseRepository(supplied.repository), branch: String(supplied.branch || "main"), url: tab?.url || "" };
+
+  const stored = await chrome.storage.local.get(WORKSPACE_BINDINGS_KEY);
+  const cached = stored[WORKSPACE_BINDINGS_KEY]?.[pageProjectId] || {};
+  let detected = { projectId: pageProjectId, repository: "" };
+  if (tab?.id && tab.url?.startsWith("https://lovable.dev/")) {
+    const result = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      world: "MAIN",
+      func: inspectLovablePage,
+    }).catch(() => []);
+    detected = result?.[0]?.result || detected;
+  }
+  const repository = parseRepository(supplied.repository || detected.repository || cached.repository);
+  const binding = {
+    ...cached,
+    ...(repository ? { repository } : {}),
+    branch: String(supplied.branch || cached.branch || "main"),
+    source: supplied.repository ? "lovable-composer" : detected.repository ? "lovable-page-probe" : cached.source || "none",
+    detectedAt: new Date().toISOString(),
   };
   await chrome.storage.local.set({
-    [PROJECT_RUN_STATUS_KEY]: {
-      ...statuses,
-      [projectId]: next,
+    [WORKSPACE_BINDINGS_KEY]: { ...(stored[WORKSPACE_BINDINGS_KEY] || {}), [pageProjectId]: binding },
+  });
+  return { projectId: pageProjectId, repository, branch: binding.branch, url: tab?.url || supplied.url || "" };
+}
+
+async function backendRequest(path, options = {}) {
+  const config = await getConfig();
+  const baseUrl = String(config.backendUrl || "").replace(/\/+$/, "");
+  if (!baseUrl) throw new Error("Configure the LovaRPM backend URL in the extension.");
+  if (!config.apiToken) throw new Error("Configure the backend API token in the extension.");
+  let response;
+  try {
+    response = await fetch(`${baseUrl}${path}`, {
+      ...options,
+      cache: "no-store",
+      headers: {
+        Authorization: `Bearer ${config.apiToken}`,
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+      },
+      signal: options.signal || AbortSignal.timeout(30_000),
+    });
+  } catch (error) {
+    throw new Error(`Could not reach the LovaRPM backend: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  let result;
+  try {
+    result = await response.json();
+  } catch {
+    throw new Error(`The LovaRPM backend returned an invalid response (HTTP ${response.status}).`);
+  }
+  if (!response.ok) throw new Error(result?.error || `LovaRPM backend request failed (HTTP ${response.status}).`);
+  return result;
+}
+
+function statusRecord(task, projectId) {
+  const lastActivity = task.events?.at(-1);
+  return {
+    taskId: task.id,
+    projectId,
+    repository: task.repository,
+    branch: task.branch,
+    status: task.state,
+    objective: task.prompt.slice(0, 700),
+    activityText: lastActivity?.message || task.state,
+    selectedModel: task.selectedModel,
+    activeModel: task.activeModel,
+    summary: task.summary,
+    error: task.error,
+    result: task.result,
+    events: task.events || [],
+    updatedAt: task.updatedAt,
+    completedAt: task.completedAt,
+  };
+}
+
+async function setTaskStatus(task, projectId) {
+  if (!projectId) return;
+  const stored = await chrome.storage.local.get(TASK_STATUS_KEY);
+  await chrome.storage.local.set({
+    [TASK_STATUS_KEY]: {
+      ...(stored[TASK_STATUS_KEY] || {}),
+      [projectId]: statusRecord(task, projectId),
     },
   });
-  return next;
 }
 
-async function handleCapturedPrompt(message, sender) {
-  const payload = message.payload;
-
-  if (!payload?.text || typeof payload.text !== "string" || !payload.text.trim()) {
-    return { ok: false, error: "Prompt is empty or invalid." };
+async function submitTask(payload, sender) {
+  const config = await getConfig();
+  if (config.enabled === false) throw new Error("LovaRPM is disabled.");
+  const authorize = globalThis.LovaRPMLicense?.authorizeOperation;
+  if (typeof authorize !== "function") throw new Error("The LovaRPM license service is unavailable; coding tasks remain locked.");
+  const authorization = await authorize();
+  if (!authorization?.ok) {
+    throw new Error(authorization?.status?.message || "A valid LovaRPM license is required to submit coding tasks.");
   }
-
-  let repository = payload.repository || "";
-  let repositoryDetectionSource = payload.repositoryDetectionSource || "";
-  let lovableProjectId = payload.lovableProjectId || "";
-  const platform = "lovable";
-
-  if (!repository) {
-    const workspace = await detectLovableWorkspace(sender?.tab?.id, {
-      lovableProjectId,
-      url: payload.url,
-      domRepository: "",
-    });
-    repository = workspace.repository || "";
-    repositoryDetectionSource = workspace.source || "none";
-    lovableProjectId = workspace.lovableProjectId || lovableProjectId;
-  }
-
-  if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(String(repository || ""))) {
-    return { ok: false, error: "Connect GitHub to enable dispatch." };
-  }
-
-  let fallbackSkills;
-  if (!Object.prototype.hasOwnProperty.call(payload, "skills") && lovableProjectId) {
-    const stored = await chrome.storage.local.get("projectSkillSelections");
-    fallbackSkills = stored.projectSkillSelections?.[lovableProjectId];
-  }
-
-  const bootstrap = await accessBootstrapState(lovableProjectId);
-
-  const pendingPrompt = {
-    text: payload.text.trim(),
-    url: payload.url || "",
-    title: payload.title || "",
-    capturedAt: payload.capturedAt || new Date().toISOString(),
-    source: message.source || "lovable",
-    platform,
-    repository,
-    repositoryDetectionSource,
-    lovableProjectId,
-    apiDiagnostics: Array.isArray(payload.apiDiagnostics) ? payload.apiDiagnostics.slice(-24) : [],
-    skills: getPromptSkillIds(payload, fallbackSkills),
-    accessBootstrap: bootstrap.required ? "REQUIRED" : "",
-    accessBootstrapKey: bootstrap.key || "",
-    status: "captured",
-  };
-
-  const workspaceKey = pendingPrompt.lovableProjectId || pendingPrompt.url;
-  const storagePatch = { pendingPrompt };
-
-  await setProjectRunStatus(pendingPrompt.lovableProjectId, {
-    status: "sending",
-    marker: "",
-    objective: pendingPrompt.text.slice(0, 700),
-    startedAt: pendingPrompt.capturedAt,
-    dispatchedAt: "",
-    completedAt: "",
-    error: "",
-    excerpt: "",
-    repository: pendingPrompt.repository || "",
+  const workspace = await getWorkspace(sender?.tab?.id, {
+    projectId: payload.projectId || payload.lovableProjectId,
+    repository: payload.repository,
+    branch: payload.branch,
+    url: payload.url,
   });
+  const repository = parseRepository(workspace.repository);
+  if (!repository) throw new Error("Connect or select a GitHub repository for this Lovable project.");
+  const requestId = String(payload.requestId || crypto.randomUUID());
+  const result = await backendRequest("/api/tasks", {
+    method: "POST",
+    headers: { "Idempotency-Key": requestId },
+    body: JSON.stringify({
+      prompt: String(payload.prompt || payload.objective || payload.text || "").trim(),
+      repository,
+      branch: workspace.branch || "main",
+      model: String(payload.model || config.selectedModel || "claude-sonnet-4-6"),
+      projectId: workspace.projectId,
+      requestId,
+    }),
+  });
+  await setTaskStatus(result.task, workspace.projectId);
+  return { task: result.task, created: result.created, workspace };
+}
 
-  if (workspaceKey && pendingPrompt.repository) {
-    const stored = await chrome.storage.local.get("workspaceBindings");
-    storagePatch.workspaceBindings = {
-      ...(stored.workspaceBindings || {}),
-      [workspaceKey]: {
-        repository: pendingPrompt.repository,
-        detectedAt: new Date().toISOString(),
-        source: pendingPrompt.repositoryDetectionSource || "captured",
-      },
-    };
-  }
-
-  await chrome.storage.local.set(storagePatch);
-  await invalidateProjectContext(pendingPrompt.lovableProjectId);
-
+async function syncTasks() {
   try {
-    const relay = await relayPromptToChatGpt(pendingPrompt, sender?.tab?.id);
-    const dispatchedPrompt = {
-      ...pendingPrompt,
-      status: "dispatched",
-      chatgptTabId: relay.tabId,
-      dispatchedAt: new Date().toISOString(),
-    };
-    await chrome.storage.local.set({ pendingPrompt: dispatchedPrompt });
-    await setProjectRunStatus(pendingPrompt.lovableProjectId, {
-      status: "working",
-      marker: "",
-      dispatchedAt: dispatchedPrompt.dispatchedAt,
-      chatgptTabId: relay.tabId,
-      error: "",
-    });
-    return {
-      ok: true,
-      status: "dispatched",
-      chatgptTabId: relay.tabId,
-      repository: pendingPrompt.repository,
-      repositoryDetectionSource: pendingPrompt.repositoryDetectionSource,
-    };
-  } catch (error) {
-    const failedPrompt = {
-      ...pendingPrompt,
-      status: "error",
-      error: error instanceof Error ? error.message : String(error),
-      failedAt: new Date().toISOString(),
-    };
-    await chrome.storage.local.set({ pendingPrompt: failedPrompt });
-    await setProjectRunStatus(pendingPrompt.lovableProjectId, {
-      status: "error",
-      marker: "[LOVABURST_ERROR]",
-      error: failedPrompt.error,
-      completedAt: failedPrompt.failedAt,
-    });
-    return { ok: false, error: failedPrompt.error };
+    const result = await backendRequest("/api/tasks");
+    const statusMap = { ...((await chrome.storage.local.get(TASK_STATUS_KEY))[TASK_STATUS_KEY] || {}) };
+    for (const task of result.tasks || []) {
+      if (!task.projectId) continue;
+      statusMap[task.projectId] = statusRecord(task, task.projectId);
+    }
+    await chrome.storage.local.set({ [TASK_STATUS_KEY]: statusMap });
+  } catch {
+    // Polling is best-effort; task state remains authoritative on the backend.
   }
 }
 
-chrome.tabs.onRemoved.addListener(async (tabId) => {
-  const link = await getStoredChatGptLink();
-  if (link?.tabId === tabId) {
-    await clearChatGptLink();
-  }
+chrome.runtime.onInstalled.addListener(() => {
+  void cleanLegacyState();
+  void configurePanel().catch((error) => console.warn("[LovaRPM] Side panel setup failed:", error));
+  chrome.alarms.create(TASK_POLL_ALARM, { periodInMinutes: 0.5 });
 });
-
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
-  const link = await getStoredChatGptLink();
-  if (link?.tabId !== tabId) return;
-
-  if (changeInfo.url && !changeInfo.url.startsWith("https://chatgpt.com/")) {
-    await clearChatGptLink();
-    return;
-  }
-
-  if (tab?.url?.startsWith("https://chatgpt.com/") && (changeInfo.url || changeInfo.title)) {
-    await chrome.storage.local.set({
-      chatgptLink: {
-        ...link,
-        url: tab.url,
-        title: tab.title || link.title || "ChatGPT",
-        updatedAt: new Date().toISOString(),
-      },
-    });
-  }
+chrome.runtime.onStartup.addListener(() => {
+  void configurePanel().catch((error) => console.warn("[LovaRPM] Side panel setup failed:", error));
+  void syncTasks();
+  chrome.alarms.create(TASK_POLL_ALARM, { periodInMinutes: 0.5 });
 });
+chrome.alarms.onAlarm.addListener((alarm) => {
+  if (alarm.name === TASK_POLL_ALARM) void syncTasks();
+});
+void cleanLegacyState();
+void configurePanel().catch((error) => console.warn("[LovaRPM] Side panel setup failed:", error));
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message?.type === "LOVABURST_RESULT_MARKER_DETECTED") {
-    // Step 3: the ChatGPT content script already persisted the project-scoped result.
-    // Mark access bootstrap complete only after a successful ChatGPT completion.
-    const marker = String(message.marker || "");
-    const projectId = String(message.projectId || "");
-    if (marker === "[PRM_DONE]" || marker === "[LOVABURST_DONE]" || marker === "[LOVARPM_DONE]") {
-      chrome.storage.local.get("pendingPrompt")
-        .then((stored) => {
-          const prompt = stored.pendingPrompt;
-          if (
-            prompt?.accessBootstrapKey &&
-            String(prompt?.lovableProjectId || "") === projectId
-          ) {
-            return markAccessBootstrapComplete(prompt.accessBootstrapKey);
-          }
-        })
-        .catch(() => {});
-    }
-    const completionMarkers = ["[PRM_DONE]", "[PRM_BLOCKED]", "[PRM_ERROR]", "[LOVABURST_DONE]", "[LOVABURST_BLOCKED]", "[LOVABURST_ERROR]", "[LOVARPM_DONE]", "[LOVARPM_BLOCKED]", "[LOVARPM_ERROR]"];
-    if (projectId && completionMarkers.includes(marker)) {
-      void (async () => {
-        const stored = await chrome.storage.local.get(PROJECT_RUN_STATUS_KEY);
-        const run = stored[PROJECT_RUN_STATUS_KEY]?.[projectId] || {};
-        const runToken = `${projectId}:${run.assistantMessageKey || run.completedAt || marker}:${marker}`;
-        if (run.postCompletionKey === runToken || POST_COMPLETION_RUNS.has(runToken)) return;
-        POST_COMPLETION_RUNS.add(runToken);
-        try {
-          const context = await gatherProjectContext(projectId);
-          await runPostCompletionPipeline(projectId, run.liveResponse || run.excerpt || "", { ...context, marker, status: run.status }, setProjectRunStatus);
-          await setProjectRunStatus(projectId, { postCompletionKey: runToken });
-        } finally {
-          POST_COMPLETION_RUNS.delete(runToken);
-        }
-      })().catch((error) => {
-        void setProjectRunStatus(projectId, { status: "error", error: error instanceof Error ? error.message : String(error) });
-      });
-    }
-    sendResponse({
-      ok: true,
-      projectId,
-      status: String(message.status || ""),
-      marker,
-    });
-    return false;
-  }
-
-
   if (!message || typeof message !== "object") return false;
-  if (message.type === "LOVABURST_PREPARE_SPECIAL_OPERATION") {
-    const operation = String(message.operation || "").trim();
-    if (!["create-project", "analyze-project"].includes(operation)) { sendResponse({ ok: false, error: "Invalid operation." }); return false; }
-    globalThis.LovaRPMLicense?.preparePrompt?.(operation, message.payload || {})
-      .then((prompt) => sendResponse({ ok: true, prompt }))
-      .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
-    return true;
-  }
-
   if (message.type === "LOVABURST_GET_CONFIG") {
-    getConfig()
-      .then((config) => sendResponse({ ok: true, config }))
-      .catch((error) => sendResponse({ ok: false, error: String(error) }));
+    getConfig().then((config) => sendResponse({ ok: true, config })).catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
-
   if (message.type === "LOVABURST_SET_CONFIG") {
-    setConfig(message.config ?? {})
-      .then((config) => sendResponse({ ok: true, config }))
-      .catch((error) => sendResponse({ ok: false, error: String(error) }));
+    setConfig(message.config || {}).then((config) => sendResponse({ ok: true, config })).catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
-
-  if (message.type === "LOVABURST_LIST_CHATGPT_TABS") {
-    listChatGptTabs()
-      .then((tabs) => sendResponse({ ok: true, tabs }))
-      .catch((error) => sendResponse({ ok: false, error: String(error) }));
+  if (message.type === "LOVABURST_GET_WORKSPACE") {
+    getWorkspace(Number.isInteger(message.tabId) ? message.tabId : sender?.tab?.id, message.workspace || {})
+      .then((workspace) => sendResponse({ ok: true, workspace }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
-
-  if (message.type === "LOVABURST_GET_CHATGPT_STATUS") {
-    getChatGptStatus()
-      .then((status) => sendResponse({ ok: true, ...status }))
-      .catch((error) => sendResponse({ ok: false, error: String(error) }));
-    return true;
-  }
-
-  if (message.type === "LOVABURST_LINK_CHATGPT") {
-    linkChatGptTab(Number(message.tabId))
-      .then((link) => sendResponse({ ok: true, link }))
+  if (message.type === "LOVABURST_CREATE_TASK" || message.type === "LOVABURST_COMPOSER_SUBMIT") {
+    submitTask(message.payload || message, sender)
+      .then((result) => sendResponse({ ok: true, ...result }))
       .catch((error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
     return true;
   }
-
-  if (message.type === "LOVABURST_UNLINK_CHATGPT") {
-    clearChatGptLink()
-      .then(() => sendResponse({ ok: true }))
-      .catch((error) => sendResponse({ ok: false, error: String(error) }));
+  if (message.type === "LOVABURST_GET_TASKS") {
+    backendRequest("/api/tasks")
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
-
-  if (message.type === "LOVABURST_OPEN_LINKED_CHATGPT") {
-    getLinkedChatGptTab()
-      .then(async (tab) => {
-        if (!tab?.id) {
-          sendResponse({ ok: false, error: "No ChatGPT conversation is linked." });
-          return;
-        }
-        await chrome.tabs.update(tab.id, { active: true });
-        if (tab.windowId) await chrome.windows.update(tab.windowId, { focused: true });
-        sendResponse({ ok: true });
+  if (message.type === "LOVABURST_SYNC_TASKS") {
+    syncTasks().then(() => sendResponse({ ok: true })).catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message.type === "LOVABURST_GET_MODELS") {
+    backendRequest("/api/models")
+      .then((result) => sendResponse({ ok: true, ...result }))
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
+    return true;
+  }
+  if (message.type === "LOVABURST_CANCEL_TASK") {
+    backendRequest(`/api/tasks/${encodeURIComponent(message.taskId)}/cancel`, { method: "POST", body: "{}" })
+      .then(async ({ task }) => {
+        await setTaskStatus(task, task.projectId);
+        sendResponse({ ok: true, task });
       })
-      .catch((error) => sendResponse({ ok: false, error: String(error) }));
+      .catch((error) => sendResponse({ ok: false, error: error.message }));
     return true;
   }
-
-  if (message.type === "LOVABURST_DETECT_WORKSPACE") {
-    detectLovableWorkspace(sender?.tab?.id, message.payload || {})
-      .then((workspace) => sendResponse({ ok: true, ...workspace }))
-      .catch((error) => sendResponse({ ok: false, error: String(error) }));
-    return true;
-  }
-
-  if (message.type === "LOVABURST_PROMPT_CAPTURED") {
-    handleCapturedPrompt(message, sender)
-      .then(sendResponse)
-      .catch((error) => sendResponse({ ok: false, error: String(error) }));
-    return true;
-  }
-
   if (message.type === "LOVABURST_PING") {
     sendResponse({ ok: true, source: "background" });
   }
-
   return false;
 });

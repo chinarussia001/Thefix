@@ -3,11 +3,9 @@
   window.__LOVABURST_RUN_MONITOR_V0306__ = true;
   window.__LOVABURST_RUN_MONITOR__ = true;
   const KEY = "projectRunStatuses";
-  const CONFIG_KEY = "config";
   const POSITION_KEY = "lovaburstRunMonitorPosition";
   const PROJECT_RE = /\/(?:projects|apps)\/([A-Za-z0-9-]+)/i;
-  const DEFAULT_REFRESH_SECONDS = 30;
-  const ALLOWED_REFRESH_SECONDS = new Set([5, 10, 15, 30, 60, 120]);
+  const TASK_SYNC_INTERVAL_MS = 15000;
   const VIEWPORT_MARGIN = 12;
   const TOAST_LOGO_URL = chrome.runtime.getURL("assets/logo.png");
   let shadow = null, toast = null, monitor = null;
@@ -16,8 +14,6 @@
   let initialTimer = null;
   let refreshTimer = null;
   let lastRunStatus = "";
-  let refreshSeconds = DEFAULT_REFRESH_SECONDS;
-  let autoCheckPaused = false;
   let dismissed = false;
   let positionLoaded = false;
   let savedPosition = null;
@@ -187,23 +183,29 @@
 
   function render(run) {
     const status = String(run?.status || "idle").toLowerCase();
-    const wasActive = ["sending", "working"].includes(lastRunStatus);
-    const isActive = ["sending", "working"].includes(status);
+    const activeStates = ["queued", "inspecting", "planning", "editing", "testing", "repairing", "delivering", "cancelling"];
+    const wasActive = activeStates.includes(lastRunStatus);
+    const isActive = activeStates.includes(status);
     if (!wasActive && isActive) {
       dismissed = false;
       scheduleRefresh();
     }
     lastRunStatus = status;
     if (!attach()) return;
-    const map = { sending:[1,"Sending"], working:[2,"Working"], done:[4,"Complete"], blocked:[2,"Action required"], error:[2,"Error"] };
+    const map = {
+      queued:[1,"Queued"], inspecting:[1,"Inspecting"], planning:[2,"Planning"], editing:[3,"Editing"],
+      testing:[3,"Testing"], repairing:[3,"Repairing"], delivering:[4,"Delivering"],
+      completed:[4,"Completed"], failed:[2,"Failed"], cancelled:[0,"Cancelled"],
+      cancelling:[3,"Cancelling"], attention:[2,"Needs attention"],
+    };
     const [filled,label] = map[status] || [0,"Waiting"];
     const progress = monitor.querySelector(".lb-monitor-progress");
-    progress.dataset.status = status;
-    [...progress.querySelectorAll("i")].forEach((el,index)=>{el.dataset.fill=String(index<filled);el.dataset.current=String(status!=="done"&&index===Math.max(0,filled-1));});
+    progress.dataset.status = isActive ? "working" : status;
+    [...progress.querySelectorAll("i")].forEach((el,index)=>{el.dataset.fill=String(index<filled);el.dataset.current=String(status!=="completed"&&index===Math.max(0,filled-1));});
     const activity = String(run?.activityText || "").replace(/\s+/g," ").trim().slice(0,220);
     const activityEl = monitor.querySelector(".lb-monitor-activity"); activityEl.textContent = activity; activityEl.title = activity;
     monitor.querySelector(".lb-monitor-phase").textContent = label;
-    const visibleStatus = ["sending","working","done","blocked","error"].includes(status);
+    const visibleStatus = [...activeStates, "completed", "failed", "cancelled", "attention"].includes(status);
     monitor.hidden = !visibleStatus;
     const close = toast.querySelector(".lb-close");
     if (close) close.style.display = visibleStatus ? "block" : "none";
@@ -229,40 +231,24 @@
     }
   }
 
-  async function loadRefreshSettings() {
-    if (!contextAvailable()) return;
-    try {
-      const stored = await chrome.storage.local.get(CONFIG_KEY);
-      const value = Number(stored[CONFIG_KEY]?.chatgptCheckIntervalSeconds);
-      refreshSeconds = ALLOWED_REFRESH_SECONDS.has(value) ? value : DEFAULT_REFRESH_SECONDS;
-      autoCheckPaused = Boolean(stored[CONFIG_KEY]?.chatgptAutoCheckPaused);
-    } catch (error) {
-      if (isContextInvalidation(error) || !contextAvailable()) stopAfterContextInvalidation();
-    }
-  }
-
   function scheduleRefresh() {
     if (refreshTimer) clearTimeout(refreshTimer);
     refreshTimer = null;
-    if (stopped || autoCheckPaused) return;
+    if (stopped) return;
     refreshTimer = setTimeout(() => {
       refreshTimer = null;
-      if (!stopped && ["sending", "working"].includes(lastRunStatus)) {
-        const id = projectId();
-        if (id && contextAvailable()) {
-          chrome.runtime.sendMessage({ type: "LOVABURST_REFRESH_CHATGPT_RESULT_V0304", projectId: id }).catch((error) => {
+      if (!stopped && ["queued", "inspecting", "planning", "editing", "testing", "repairing", "delivering", "cancelling"].includes(lastRunStatus)) {
+        chrome.runtime.sendMessage({ type: "LOVABURST_SYNC_TASKS" }).catch((error) => {
             if (isContextInvalidation(error) || !contextAvailable()) stopAfterContextInvalidation();
-          });
-        }
+        });
       }
       scheduleRefresh();
-    }, refreshSeconds * 1000);
+    }, TASK_SYNC_INTERVAL_MS);
   }
 
   function onStorageChanged(changes, area) {
     if (area !== "local") return;
     if (changes[KEY]) void sync();
-    if (changes[CONFIG_KEY]) void loadRefreshSettings().then(scheduleRefresh);
     if (changes[POSITION_KEY] && positionLoaded) {
       savedPosition = changes[POSITION_KEY].newValue || null;
       applyPosition(savedPosition);
@@ -293,5 +279,5 @@
   });
   observer.observe(document.documentElement, { childList: true, subtree: true });
   initialTimer = setTimeout(() => void sync(), 500);
-  void loadRefreshSettings().then(scheduleRefresh);
+  scheduleRefresh();
 })();

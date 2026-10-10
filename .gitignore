@@ -1,0 +1,6 @@
+.env
+.env.*
+!.env.example
+backend/data/
+backend/workspaces/
+node_modules/

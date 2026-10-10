@@ -1,21 +1,27 @@
 {
   "manifest_version": 3,
   "name": "LovaRPM",
-  "version": "2.9.8",
-  "description": "LovaRPM extension for Lovable projects, with GitHub as the primary source for code changes.",
+  "version": "3.0.0",
+  "description": "Autonomous coding agent for Lovable projects, powered by a persistent backend.",
   "permissions": [
     "storage",
     "tabs",
     "scripting",
     "sidePanel",
+    "alarms",
     "downloads"
   ],
   "host_permissions": [
     "https://lovable.dev/*",
-    "https://chatgpt.com/*",
+    "http://127.0.0.1:4173/*",
+    "http://localhost:4173/*",
+    "https://github.com/*",
     "https://oypjjsyqpnxvkadatkbi.supabase.co/*",
     "https://happy-little101.lovable.app/*",
     "https://*.lovableproject.com/*"
+  ],
+  "optional_host_permissions": [
+    "https://*/*"
   ],
   "background": {
     "service_worker": "src/background/service-worker-v020.js",
@@ -53,32 +59,13 @@
       ],
       "js": [
         "src/content/lovable-context-guard.js",
-        "src/shared/attachments.js",
-        "src/content/lovable.js",
         "src/content/lovable-composer-core.js",
-        "src/content/lovable-attachments.js",
         "src/content/lovable-integrations.js",
         "src/content/lovable-supabase-state-bridge.js",
         "src/content/lovable-composer.js",
         "src/content/lovable-run-monitor.js",
         "src/content/lovable-logo-refresh.js",
         "src/content/lovable-preview-refresh.js"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://chatgpt.com/*"
-      ],
-      "js": [
-        "src/content/chatgpt-context-guard.js",
-        "src/content/chatgpt-visibility.js",
-        "src/content/chatgpt.js",
-        "src/content/chatgpt-prompt-card.js",
-        "src/content/chatgpt-attachments.js",
-        "src/content/chatgpt-enhance.js",
-        "src/content/chatgpt-activity.js",
-        "src/content/chatgpt-result-refresh.js"
       ],
       "run_at": "document_idle"
     }
@@ -101,9 +88,9 @@
       ],
       "matches": [
         "https://lovable.dev/*",
-        "https://chatgpt.com/*"
+        "https://*.lovableproject.com/*"
       ]
     }
   ],
-  "version_name": "Brazil's best extension, always up to date"
+  "version_name": "Autonomous coding agent"
 }
